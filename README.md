@@ -30,7 +30,7 @@ Add this to your package's `pubspec.yaml` file:
 
 ```yaml
 dependencies:
-websocket_plugin: ^1.0.0
+adapter_websocket: 0.0.1
 ```
 
 ## Quick Start
