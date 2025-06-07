@@ -28,16 +28,16 @@ A robust Flutter WebSocket plugin utilizing the Adapter design pattern for flexi
 
 Add this to your package's `pubspec.yaml` file:
 
-\`\`\`yaml
+```yaml
 dependencies:
 websocket_plugin: ^1.0.0
-\`\`\`
+```
 
 ## Quick Start
 
 ### Basic Usage
 
-\`\`\`dart
+```dart
 import 'package:websocket_plugin/websocket_plugin.dart';
 
 // Create configuration
@@ -61,11 +61,11 @@ print('Received: ${message.data}');
 await client.connect();
 await client.sendText('Hello, WebSocket!');
 await client.sendJson({'type': 'greeting', 'message': 'Hello'});
-\`\`\`
+```
 
 ### Advanced Configuration
 
-\`\`\`dart
+```dart
 final config = WebSocketConfig(
 url: 'wss://your-websocket-server.com',
 protocols: ['chat', 'superchat'],
@@ -90,7 +90,7 @@ heartbeatMessage: 'ping',
 expectedPongMessage: 'pong',
 maxMissedHeartbeats: 3,
 );
-\`\`\`
+```
 
 ## Architecture
 
@@ -98,7 +98,7 @@ maxMissedHeartbeats: 3,
 
 The plugin uses the Adapter design pattern to provide flexibility in WebSocket implementations:
 
-\`\`\`dart
+```dart
 // Abstract adapter interface
 abstract class WebSocketAdapter {
 Stream<WebSocketState> get stateStream;
@@ -121,7 +121,7 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
 class MockWebSocketAdapter implements WebSocketAdapter {
 // Mock implementation...
 }
-\`\`\`
+```
 
 ### Key Components
 
@@ -135,26 +135,26 @@ class MockWebSocketAdapter implements WebSocketAdapter {
 ## Message Types
 
 ### Text Messages
-\`\`\`dart
+```dart
 await client.sendText('Hello, World!');
-\`\`\`
+```
 
 ### JSON Messages
-\`\`\`dart
+```dart
 await client.sendJson({
 'type': 'chat',
 'message': 'Hello',
 'timestamp': DateTime.now().toIso8601String(),
 });
-\`\`\`
+```
 
 ### Binary Messages
-\`\`\`dart
+```dart
 await client.sendBinary([1, 2, 3, 4, 5]);
-\`\`\`
+```
 
 ### Custom Messages
-\`\`\`dart
+```dart
 final message = WebSocketMessage(
 data: 'custom data',
 timestamp: DateTime.now(),
@@ -162,13 +162,13 @@ type: 'custom',
 metadata: {'priority': 'high'},
 );
 await client.sendMessage(message);
-\`\`\`
+```
 
 ## State Management
 
 The plugin provides real-time state tracking:
 
-\`\`\`dart
+```dart
 client.stateStream.listen((state) {
 switch (state) {
 case WebSocketState.connecting:
@@ -188,24 +188,24 @@ print('Connection error');
 break;
 }
 });
-\`\`\`
+```
 
 ## Error Handling
 
 Comprehensive error handling with detailed error streams:
 
-\`\`\`dart
+```dart
 client.errorStream.listen((error) {
 print('WebSocket error: $error');
 // Handle error appropriately
 });
-\`\`\`
+```
 
 ## Testing
 
 The plugin includes enhanced mock capabilities for testing heartbeat and reconnection scenarios:
 
-\`\`\`dart
+```dart
 import 'package:flutter_test/flutter_test.dart';
 import 'package:websocket_plugin/websocket_plugin.dart';
 
@@ -266,13 +266,13 @@ mockAdapter.setSimulateUnstableConnection(true);
     // Perfect for testing resilience
 });
 }
-\`\`\`
+```
 
 ## Logging
 
 Enable detailed logging for debugging:
 
-\`\`\`dart
+```dart
 final config = WebSocketConfig(
 url: 'wss://your-server.com',
 enableLogging: true,
@@ -281,7 +281,7 @@ enableLogging: true,
 client.logStream.listen((log) {
 print('WebSocket Log: $log');
 });
-\`\`\`
+```
 
 ## Best Practices
 
