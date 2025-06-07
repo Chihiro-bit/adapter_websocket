@@ -1,4 +1,4 @@
-library websocket_plugin;
+library adapter_websocket;
 
 export 'src/websocket_adapter.dart';
 export 'src/websocket_client.dart';

@@ -36,7 +36,7 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
 
   @override
   WebSocketConfig get config => _config;
-
+  bool get isWeb => identical(0, 0.0);
   @override
   Future<void> connect() async {
     if (_currentState == WebSocketState.connecting || _currentState == WebSocketState.connected) {
@@ -54,12 +54,19 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
           _handleError(TimeoutException('Connection timeout', _config.connectionTimeout));
         }
       });
-      
-      _channel = IOWebSocketChannel.connect(
-        uri,
-        protocols: _config.protocols,
-        headers: _config.headers,
-      );
+
+      if(isWeb){
+        _channel = WebSocketChannel.connect(
+          uri,
+          protocols: _config.protocols,
+        );
+      }else{
+        _channel = IOWebSocketChannel.connect(
+          uri,
+          protocols: _config.protocols,
+          headers: _config.headers,
+        );
+      }
 
       // Listen to the channel stream
       _channelSubscription = _channel!.stream.listen(
