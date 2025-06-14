@@ -16,7 +16,7 @@ void main() {
       shouldFailReconnect = false;
       
       config = WebSocketConfig(
-        url: 'wss://test.example.com',
+        url: 'ws://124.222.6.60:8800',
         autoReconnect: true,
         maxReconnectAttempts: 3,
         reconnectDelay: Duration(milliseconds: 100),

@@ -10,12 +10,15 @@ import '../websocket_state.dart';
 /// WebSocket adapter implementation using the web_socket_channel package
 class WebSocketChannelAdapter implements WebSocketAdapter {
   final WebSocketConfig _config;
-  
+
   WebSocketChannel? _channel;
-  final StreamController<WebSocketState> _stateController = StreamController<WebSocketState>.broadcast();
-  final StreamController<WebSocketMessage> _messageController = StreamController<WebSocketMessage>.broadcast();
-  final StreamController<dynamic> _errorController = StreamController<dynamic>.broadcast();
-  
+  final StreamController<WebSocketState> _stateController =
+      StreamController<WebSocketState>.broadcast();
+  final StreamController<WebSocketMessage> _messageController =
+      StreamController<WebSocketMessage>.broadcast();
+  final StreamController<dynamic> _errorController =
+      StreamController<dynamic>.broadcast();
+
   WebSocketState _currentState = WebSocketState.disconnected;
   StreamSubscription? _channelSubscription;
   Timer? _connectionTimeoutTimer;
@@ -36,10 +39,13 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
 
   @override
   WebSocketConfig get config => _config;
+
   bool get isWeb => identical(0, 0.0);
+
   @override
   Future<void> connect() async {
-    if (_currentState == WebSocketState.connecting || _currentState == WebSocketState.connected) {
+    if (_currentState == WebSocketState.connecting ||
+        _currentState == WebSocketState.connected) {
       return;
     }
 
@@ -47,24 +53,26 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
 
     try {
       final uri = Uri.parse(_config.url);
-      
+
       // Set up connection timeout
       _connectionTimeoutTimer = Timer(_config.connectionTimeout, () {
         if (_currentState == WebSocketState.connecting) {
-          _handleError(TimeoutException('Connection timeout', _config.connectionTimeout));
+          _handleError(
+            TimeoutException('Connection timeout', _config.connectionTimeout),
+          );
         }
       });
 
-      if(isWeb){
-        _channel = WebSocketChannel.connect(
-          uri,
-          protocols: _config.protocols,
-        );
-      }else{
+      if (isWeb) {
+        _channel = WebSocketChannel.connect(uri, protocols: _config.protocols);
+      } else {
         _channel = IOWebSocketChannel.connect(
           uri,
           protocols: _config.protocols,
           headers: _config.headers,
+          customClient: _config.httpClient,
+          pingInterval: _config.pingInterval,
+          connectTimeout: _config.connectionTimeout,
         );
       }
 
@@ -79,7 +87,6 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
       await _channel!.ready;
       _connectionTimeoutTimer?.cancel();
       _updateState(WebSocketState.connected);
-      
     } catch (error) {
       _connectionTimeoutTimer?.cancel();
       _updateState(WebSocketState.error);
@@ -96,12 +103,12 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
 
     try {
       dynamic dataToSend = message.data;
-      
+
       // Handle JSON serialization
       if (message.type == 'json' && message.data is Map) {
         dataToSend = jsonEncode(message.data);
       }
-      
+
       _channel!.sink.add(dataToSend);
     } catch (error) {
       _errorController.add(error);
@@ -131,7 +138,7 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
 
     _updateState(WebSocketState.disconnecting);
     _connectionTimeoutTimer?.cancel();
-    
+
     try {
       await _channelSubscription?.cancel();
       await _channel?.sink.close(code, reason);
@@ -147,7 +154,7 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
     _connectionTimeoutTimer?.cancel();
     await _channelSubscription?.cancel();
     await _channel?.sink.close();
-    
+
     await _stateController.close();
     await _messageController.close();
     await _errorController.close();
@@ -156,7 +163,7 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
   void _handleMessage(dynamic data) {
     try {
       WebSocketMessage message;
-      
+
       if (data is String) {
         // Check if it's a heartbeat response
         if (_isHeartbeatMessage(data)) {
@@ -181,7 +188,7 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
       } else {
         message = WebSocketMessage.now(data: data);
       }
-      
+
       _messageController.add(message);
     } catch (error) {
       _errorController.add(error);
@@ -209,14 +216,14 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
   /// Checks if a message is a heartbeat message
   bool _isHeartbeatMessage(String message) {
     final lowerMessage = message.toLowerCase();
-    return lowerMessage == 'pong' || 
-           lowerMessage == _config.expectedPongMessage?.toLowerCase() ||
-           lowerMessage.contains('ping') || 
-           lowerMessage.contains('pong');
+    return lowerMessage == 'pong' ||
+        lowerMessage == _config.expectedPongMessage?.toLowerCase() ||
+        lowerMessage.contains('ping') ||
+        lowerMessage.contains('pong');
   }
 
   @override
-  bool get isClosed => currentState  == WebSocketState.disconnected;
+  bool get isClosed => currentState == WebSocketState.disconnected;
 
   @override
   bool get isConnected => currentState == WebSocketState.connected;

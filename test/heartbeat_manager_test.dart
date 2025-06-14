@@ -14,7 +14,7 @@ void main() {
       logs.clear();
       
       config = WebSocketConfig(
-        url: 'wss://test.example.com',
+        url: 'ws://124.222.6.60:8800',
         enableHeartbeat: true,
         heartbeatInterval: Duration(milliseconds: 100),
         heartbeatTimeout: Duration(milliseconds: 50),

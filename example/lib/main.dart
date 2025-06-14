@@ -51,12 +51,13 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
       enableHeartbeat: true,
       heartbeatInterval: Duration(seconds: 15),
       heartbeatTimeout: Duration(seconds: 5),
-      heartbeatMessage: 'ping',
-      expectedPongMessage: 'pong',
+      heartbeatMessage: '{"type":"heartbeat"}',
+      expectedPongMessage: '{"type":"heartbeat_ack"}',
       maxMissedHeartbeats: 3,
     );
 
     final adapter = WebSocketChannelAdapter(config);
+    final mockAdapter = MockWebSocketAdapter(config);
     _client = WebSocketClient(adapter);
 
     // Listen to state changes
@@ -120,7 +121,9 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
   Future<void> _sendMessage() async {
     if (_messageController.text.isNotEmpty) {
       try {
-        await _client.sendText(_messageController.text);
+        await _client.sendJson(
+            {"type":"broadcast","content":_messageController.text,"username":"User2"}
+        );
         setState(() {
           _messages.add('Sent: ${_messageController.text}');
         });
@@ -136,9 +139,9 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
   Future<void> _sendJsonMessage() async {
     try {
       final jsonMessage = {
-        'type': 'greeting',
-        'message': 'Hello from Flutter!',
-        'timestamp': DateTime.now().toIso8601String(),
+        "type": "broadcast",
+        "content": _messageController.text,
+        "username": "FlutterUser" // 保持字段名一致
       };
       await _client.sendJson(jsonMessage);
       setState(() {

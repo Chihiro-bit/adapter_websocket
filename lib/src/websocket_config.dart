@@ -1,8 +1,11 @@
+import 'dart:io';
+
 /// Configuration class for WebSocket connections
 class WebSocketConfig {
   final String url;
   final List<String>? protocols;
   final Map<String, String>? headers;
+  final HttpClient? httpClient;
   final Duration? pingInterval;
   final Duration connectionTimeout;
   final Duration reconnectDelay;
@@ -41,6 +44,8 @@ class WebSocketConfig {
     this.useExponentialBackoff = true,
     this.maxReconnectDelay = const Duration(minutes: 5),
     this.backoffMultiplier = 2.0,
+    this.httpClient,
+
   });
 
   /// Creates a copy of this config with updated values

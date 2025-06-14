@@ -8,7 +8,7 @@ void main() {
     late WebSocketConfig config;
 
     setUp(() {
-      config = WebSocketConfig(url: 'wss://test.example.com');
+      config = WebSocketConfig(url: 'ws://124.222.6.60:8800');
       adapter = MockWebSocketAdapter(config);
     });
 
