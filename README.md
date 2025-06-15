@@ -23,6 +23,7 @@ A robust Flutter WebSocket plugin utilizing the Adapter design pattern for flexi
 - **Advanced Monitoring**: Comprehensive connection and heartbeat metrics
 - **Health Monitoring**: Track connection quality and performance
 - **Detailed Logging**: Enhanced debugging with heartbeat and reconnection logs
+- **Interceptors**: Customize processing of outgoing and incoming messages
 
 ## Installation
 
