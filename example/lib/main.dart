@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:adapter_websocket/websocket_plugin.dart';
+
 void main() {
   runApp(MyApp());
 }
@@ -9,9 +12,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Enhanced WebSocket Plugin Demo',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-      ),
+      theme: ThemeData(primarySwatch: Colors.blue),
       home: WebSocketDemo(),
     );
   }
@@ -39,6 +40,13 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
   }
 
   void _initializeWebSocket() {
+    final httpClient = HttpClient(context: SecurityContext.defaultContext)
+      ..idleTimeout = const Duration(seconds: 30)
+      ..connectionTimeout = const Duration(seconds: 30);
+    httpClient.badCertificateCallback =
+        (X509Certificate cert, String host, int port) {
+          return true;
+        };
     final config = WebSocketConfig(
       url: _urlController.text,
       autoReconnect: true,
@@ -47,6 +55,7 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
       useExponentialBackoff: true,
       maxReconnectDelay: Duration(minutes: 2),
       enableLogging: true,
+      httpClient: httpClient,
       // Enhanced heartbeat configuration
       enableHeartbeat: true,
       heartbeatInterval: Duration(seconds: 15),
@@ -57,7 +66,6 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
     );
 
     final adapter = WebSocketChannelAdapter(config);
-    final mockAdapter = MockWebSocketAdapter(config);
     _client = WebSocketClient(adapter);
 
     // Listen to state changes
@@ -104,9 +112,9 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
     try {
       await _client.connect();
     } catch (error) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Connection failed: $error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Connection failed: $error')));
     }
   }
 
@@ -121,17 +129,19 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
   Future<void> _sendMessage() async {
     if (_messageController.text.isNotEmpty) {
       try {
-        await _client.sendJson(
-            {"type":"broadcast","content":_messageController.text,"username":"User2"}
-        );
+        await _client.sendJson({
+          "type": "broadcast",
+          "content": _messageController.text,
+          "username": "User2",
+        });
         setState(() {
           _messages.add('Sent: ${_messageController.text}');
         });
         _messageController.clear();
       } catch (error) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Send failed: $error')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Send failed: $error')));
       }
     }
   }
@@ -141,16 +151,16 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
       final jsonMessage = {
         "type": "broadcast",
         "content": _messageController.text,
-        "username": "FlutterUser" // 保持字段名一致
+        "username": "FlutterUser", // 保持字段名一致
       };
       await _client.sendJson(jsonMessage);
       setState(() {
         _messages.add('Sent JSON: $jsonMessage');
       });
     } catch (error) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('JSON send failed: $error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('JSON send failed: $error')));
     }
   }
 
@@ -239,9 +249,9 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
                 ),
               ),
             ),
-            
+
             SizedBox(height: 16),
-            
+
             // Statistics
             if (_stats.isNotEmpty)
               Card(
@@ -250,19 +260,30 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Connection Statistics', style: TextStyle(fontWeight: FontWeight.bold)),
+                      Text(
+                        'Connection Statistics',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
                       SizedBox(height: 8),
-                      Text('Heartbeat Active: ${_stats['heartbeat']?['isActive'] ?? false}'),
-                      Text('Missed Heartbeats: ${_stats['heartbeat']?['missedHeartbeats'] ?? 0}'),
-                      Text('Reconnect Attempts: ${_stats['reconnection']?['reconnectAttempts'] ?? 0}'),
-                      Text('Is Reconnecting: ${_stats['reconnection']?['isReconnecting'] ?? false}'),
+                      Text(
+                        'Heartbeat Active: ${_stats['heartbeat']?['isActive'] ?? false}',
+                      ),
+                      Text(
+                        'Missed Heartbeats: ${_stats['heartbeat']?['missedHeartbeats'] ?? 0}',
+                      ),
+                      Text(
+                        'Reconnect Attempts: ${_stats['reconnection']?['reconnectAttempts'] ?? 0}',
+                      ),
+                      Text(
+                        'Is Reconnecting: ${_stats['reconnection']?['isReconnecting'] ?? false}',
+                      ),
                     ],
                   ),
                 ),
               ),
-            
+
             SizedBox(height: 16),
-            
+
             // Message sending
             Card(
               child: Padding(
@@ -283,14 +304,18 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
                       children: [
                         Expanded(
                           child: ElevatedButton(
-                            onPressed: _client.isConnected ? _sendMessage : null,
+                            onPressed: _client.isConnected
+                                ? _sendMessage
+                                : null,
                             child: Text('Send Text'),
                           ),
                         ),
                         SizedBox(width: 8),
                         Expanded(
                           child: ElevatedButton(
-                            onPressed: _client.isConnected ? _sendJsonMessage : null,
+                            onPressed: _client.isConnected
+                                ? _sendJsonMessage
+                                : null,
                             child: Text('Send JSON'),
                           ),
                         ),
@@ -300,9 +325,9 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
                 ),
               ),
             ),
-            
+
             SizedBox(height: 16),
-            
+
             // Messages and logs
             Expanded(
               child: Row(
@@ -317,7 +342,10 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Messages', style: TextStyle(fontWeight: FontWeight.bold)),
+                                Text(
+                                  'Messages',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
                                 TextButton(
                                   onPressed: _clearMessages,
                                   child: Text('Clear'),
@@ -330,7 +358,10 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
                               itemCount: _messages.length,
                               itemBuilder: (context, index) {
                                 return Padding(
-                                  padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: 8.0,
+                                    vertical: 2.0,
+                                  ),
                                   child: Text(
                                     _messages[index],
                                     style: TextStyle(fontSize: 12),
@@ -343,9 +374,9 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
                       ),
                     ),
                   ),
-                  
+
                   SizedBox(width: 8),
-                  
+
                   // Logs
                   Expanded(
                     child: Card(
@@ -356,7 +387,10 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('Logs & Heartbeat', style: TextStyle(fontWeight: FontWeight.bold)),
+                                Text(
+                                  'Logs & Heartbeat',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
                                 TextButton(
                                   onPressed: _clearLogs,
                                   child: Text('Clear'),
@@ -369,14 +403,21 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
                               itemCount: _logs.length,
                               itemBuilder: (context, index) {
                                 final log = _logs[index];
-                                final isHeartbeat = log.contains('Heartbeat:') || log.contains('heartbeat');
+                                final isHeartbeat =
+                                    log.contains('Heartbeat:') ||
+                                    log.contains('heartbeat');
                                 return Padding(
-                                  padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: 8.0,
+                                    vertical: 2.0,
+                                  ),
                                   child: Text(
                                     log,
                                     style: TextStyle(
-                                      fontSize: 10, 
-                                      color: isHeartbeat ? Colors.blue[600] : Colors.grey[600],
+                                      fontSize: 10,
+                                      color: isHeartbeat
+                                          ? Colors.blue[600]
+                                          : Colors.grey[600],
                                     ),
                                   ),
                                 );
