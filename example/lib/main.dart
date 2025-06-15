@@ -1,13 +1,16 @@
+import 'dart:convert';
 import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:adapter_websocket/websocket_plugin.dart';
+import 'package:flutter/services.dart';
 
 void main() {
   runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -19,15 +22,17 @@ class MyApp extends StatelessWidget {
 }
 
 class WebSocketDemo extends StatefulWidget {
+  const WebSocketDemo({super.key});
+
   @override
-  _WebSocketDemoState createState() => _WebSocketDemoState();
+  State<WebSocketDemo> createState() => _WebSocketDemoState();
 }
 
 class _WebSocketDemoState extends State<WebSocketDemo> {
-  late WebSocketClient _client;
+  WebSocketClient? _client;
   final TextEditingController _messageController = TextEditingController();
   final TextEditingController _urlController = TextEditingController(
-    text: 'wss://echo.websocket.org',
+    text: 'ws://124.222.6.60:8800',
   );
   final List<String> _messages = [];
   final List<String> _logs = [];
@@ -38,15 +43,33 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
     super.initState();
     _initializeWebSocket();
   }
+  Future<HttpClient> createPinnedHttpClient({required String assetPath}) async {
+    // Load the PEM from assets
+    final ByteData certData = await rootBundle.load(assetPath);
+    final Uint8List certBytes = certData.buffer.asUint8List();
 
-  void _initializeWebSocket() {
-    final httpClient = HttpClient(context: SecurityContext.defaultContext)
-      ..idleTimeout = const Duration(seconds: 30)
-      ..connectionTimeout = const Duration(seconds: 30);
-    httpClient.badCertificateCallback =
+    // Set up a SecurityContext with just that one cert
+    final SecurityContext securityContext = SecurityContext(
+      withTrustedRoots: false,
+    );
+    securityContext.setTrustedCertificatesBytes(certBytes);
+
+    final HttpClient client = HttpClient(context: securityContext);
+
+    // Optional: you can do additional runtime checks here if you like:
+    client.badCertificateCallback =
         (X509Certificate cert, String host, int port) {
-          return true;
-        };
+      // Return true only if this exact PEM matches
+      final String incomingPem = cert.pem;
+      final String pinnedPem = utf8.decode(certBytes);
+      return incomingPem == pinnedPem;
+    };
+
+    return client;
+  }
+  Future<void> _initializeWebSocket() async {
+
+
     final config = WebSocketConfig(
       url: _urlController.text,
       autoReconnect: true,
@@ -55,7 +78,7 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
       useExponentialBackoff: true,
       maxReconnectDelay: Duration(minutes: 2),
       enableLogging: true,
-      httpClient: httpClient,
+      httpClient: await createPinnedHttpClient(assetPath: 'ssl/test_cert.pem'),
       // Enhanced heartbeat configuration
       enableHeartbeat: true,
       heartbeatInterval: Duration(seconds: 15),
@@ -66,17 +89,18 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
     );
 
     final adapter = WebSocketChannelAdapter(config);
+
     _client = WebSocketClient(adapter);
 
     // Listen to state changes
-    _client.stateStream.listen((state) {
+    _client?.stateStream.listen((state) {
       setState(() {
         _logs.add('State: ${state.description}');
       });
     });
 
     // Listen to messages
-    _client.messageStream.listen((message) {
+    _client?.messageStream.listen((message) {
       setState(() {
         if (message.metadata?['isHeartbeat'] == true) {
           _logs.add('Heartbeat: ${message.data}');
@@ -87,21 +111,21 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
     });
 
     // Listen to errors
-    _client.errorStream.listen((error) {
+    _client?.errorStream.listen((error) {
       setState(() {
         _logs.add('Error: $error');
       });
     });
 
     // Listen to logs
-    _client.logStream.listen((log) {
+    _client?.logStream.listen((log) {
       setState(() {
         _logs.add(log);
       });
     });
 
     // Listen to statistics
-    _client.statsStream.listen((stats) {
+    _client?.statsStream.listen((stats) {
       setState(() {
         _stats = stats;
       });
@@ -110,7 +134,7 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
 
   Future<void> _connect() async {
     try {
-      await _client.connect();
+      await _client?.connect();
     } catch (error) {
       ScaffoldMessenger.of(
         context,
@@ -119,17 +143,17 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
   }
 
   Future<void> _disconnect() async {
-    await _client.disconnect();
+    await _client?.disconnect();
   }
 
   Future<void> _forceReconnect() async {
-    await _client.forceReconnect();
+    await _client?.forceReconnect();
   }
 
   Future<void> _sendMessage() async {
     if (_messageController.text.isNotEmpty) {
       try {
-        await _client.sendJson({
+        await _client?.sendJson({
           "type": "broadcast",
           "content": _messageController.text,
           "username": "User2",
@@ -153,7 +177,7 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
         "content": _messageController.text,
         "username": "FlutterUser", // 保持字段名一致
       };
-      await _client.sendJson(jsonMessage);
+      await _client?.sendJson(jsonMessage);
       setState(() {
         _messages.add('Sent JSON: $jsonMessage');
       });
@@ -178,7 +202,7 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
 
   @override
   void dispose() {
-    _client.dispose();
+    _client?.dispose();
     _messageController.dispose();
     _urlController.dispose();
     super.dispose();
@@ -217,14 +241,14 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
                       children: [
                         Expanded(
                           child: ElevatedButton(
-                            onPressed: _client.isConnected ? null : _connect,
+                            onPressed: (_client?.isConnected ==true)? null : _connect,
                             child: Text('Connect'),
                           ),
                         ),
                         SizedBox(width: 8),
                         Expanded(
                           child: ElevatedButton(
-                            onPressed: _client.isConnected ? _disconnect : null,
+                            onPressed: (_client?.isConnected==true) ? _disconnect : null,
                             child: Text('Disconnect'),
                           ),
                         ),
@@ -239,10 +263,10 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
                     ),
                     SizedBox(height: 8),
                     Text(
-                      'Status: ${_client.currentState.description}',
+                      'Status: ${_client?.currentState.description}',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
-                        color: _client.isConnected ? Colors.green : Colors.red,
+                        color: (_client?.isConnected ?? true)? Colors.green : Colors.red,
                       ),
                     ),
                   ],
@@ -304,7 +328,7 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
                       children: [
                         Expanded(
                           child: ElevatedButton(
-                            onPressed: _client.isConnected
+                            onPressed: (_client?.isConnected ?? true)
                                 ? _sendMessage
                                 : null,
                             child: Text('Send Text'),
@@ -313,7 +337,7 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
                         SizedBox(width: 8),
                         Expanded(
                           child: ElevatedButton(
-                            onPressed: _client.isConnected
+                            onPressed: (_client?.isConnected??true)
                                 ? _sendJsonMessage
                                 : null,
                             child: Text('Send JSON'),

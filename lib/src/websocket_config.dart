@@ -45,7 +45,6 @@ class WebSocketConfig {
     this.maxReconnectDelay = const Duration(minutes: 5),
     this.backoffMultiplier = 2.0,
     this.httpClient,
-
   });
 
   /// Creates a copy of this config with updated values
@@ -68,6 +67,7 @@ class WebSocketConfig {
     bool? useExponentialBackoff,
     Duration? maxReconnectDelay,
     double? backoffMultiplier,
+    HttpClient? httpClient,
   }) {
     return WebSocketConfig(
       url: url ?? this.url,
@@ -88,6 +88,7 @@ class WebSocketConfig {
       useExponentialBackoff: useExponentialBackoff ?? this.useExponentialBackoff,
       maxReconnectDelay: maxReconnectDelay ?? this.maxReconnectDelay,
       backoffMultiplier: backoffMultiplier ?? this.backoffMultiplier,
+      httpClient: httpClient ?? this.httpClient,
     );
   }
 
