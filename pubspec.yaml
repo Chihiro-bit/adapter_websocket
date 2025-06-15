@@ -1,6 +1,6 @@
 name: adapter_websocket
 description: "Adapter websocket"
-version: 0.0.2
+version: 0.0.3
 homepage: https://github.com/Chihiro-bit/adapter_websocket.git
 repository: https://github.com/Chihiro-bit/adapter_websocket.git
 
