@@ -1,11 +1,21 @@
 import 'dart:io';
 
+/// Callback for handling bad TLS certificates.
+typedef BadCertificateCallback = bool Function(
+  X509Certificate cert,
+  String host,
+  int port,
+);
+
+
 /// Configuration class for WebSocket connections
 class WebSocketConfig {
   final String url;
   final List<String>? protocols;
   final Map<String, String>? headers;
   final HttpClient? httpClient;
+  final BadCertificateCallback? badCertificateCallback;
+  final SecurityContext? sslContext;
   final Duration? pingInterval;
   final Duration connectionTimeout;
   final Duration reconnectDelay;
@@ -45,6 +55,8 @@ class WebSocketConfig {
     this.maxReconnectDelay = const Duration(minutes: 5),
     this.backoffMultiplier = 2.0,
     this.httpClient,
+    this.badCertificateCallback,
+    this.sslContext,
   });
 
   /// Creates a copy of this config with updated values
@@ -68,6 +80,8 @@ class WebSocketConfig {
     Duration? maxReconnectDelay,
     double? backoffMultiplier,
     HttpClient? httpClient,
+    BadCertificateCallback? badCertificateCallback,
+    SecurityContext? sslContext,
   }) {
     return WebSocketConfig(
       url: url ?? this.url,
@@ -89,6 +103,9 @@ class WebSocketConfig {
       maxReconnectDelay: maxReconnectDelay ?? this.maxReconnectDelay,
       backoffMultiplier: backoffMultiplier ?? this.backoffMultiplier,
       httpClient: httpClient ?? this.httpClient,
+      badCertificateCallback:
+          badCertificateCallback ?? this.badCertificateCallback,
+      sslContext: sslContext ?? this.sslContext,
     );
   }
 

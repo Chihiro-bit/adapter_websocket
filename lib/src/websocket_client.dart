@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'websocket_adapter.dart';
 import 'websocket_config.dart';
+import 'certificate_callback.dart';
 import 'websocket_message.dart';
 import 'websocket_state.dart';
 import 'heartbeat_manager.dart';
@@ -14,15 +15,22 @@ class WebSocketClient {
   
   late final HeartbeatManager _heartbeatManager;
   late final ReconnectionManager _reconnectionManager;
+  final CertificateErrorCallback? certificateErrorCallback;
   
   bool _disposed = false;
   StreamSubscription? _stateSubscription;
   StreamSubscription? _messageSubscription;
   StreamSubscription? _errorSubscription;
 
-  WebSocketClient(this._adapter) {
+  WebSocketClient(
+    this._adapter, {
+    this.certificateErrorCallback,
+  }) {
     _initializeManagers();
     _setupSubscriptions();
+    if (certificateErrorCallback != null) {
+      _adapter.setCertificateErrorCallback(certificateErrorCallback!);
+    }
   }
 
   /// Stream of connection state changes

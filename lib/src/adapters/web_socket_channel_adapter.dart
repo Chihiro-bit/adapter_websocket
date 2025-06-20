@@ -1,15 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
 import '../websocket_adapter.dart';
 import '../websocket_config.dart';
+import '../certificate_callback.dart';
 import '../websocket_message.dart';
 import '../websocket_state.dart';
 
 /// WebSocket adapter implementation using the web_socket_channel package
 class WebSocketChannelAdapter implements WebSocketAdapter {
   final WebSocketConfig _config;
+  CertificateErrorCallback? _certificateErrorCallback;
 
   WebSocketChannel? _channel;
   final StreamController<WebSocketState> _stateController =
@@ -24,6 +27,11 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
   Timer? _connectionTimeoutTimer;
 
   WebSocketChannelAdapter(this._config);
+
+  @override
+  void setCertificateErrorCallback(CertificateErrorCallback callback) {
+    _certificateErrorCallback = callback;
+  }
 
   @override
   Stream<WebSocketState> get stateStream => _stateController.stream;
@@ -66,11 +74,53 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
       if (isWeb) {
         _channel = WebSocketChannel.connect(uri, protocols: _config.protocols);
       } else {
+        HttpClient? client = _config.httpClient;
+        SecurityContext? context = _config.sslContext;
+
+        // Create a client if none was provided
+        if (client == null) {
+          client = HttpClient(context: context);
+        } else if (context != null &&
+            client.context == SecurityContext.defaultContext) {
+          // If the user supplied a context but the provided HttpClient uses the
+          // default one, create a new client with the desired context.
+          client = HttpClient(context: context);
+        }
+
+        final hasCustomContext =
+            client.context != SecurityContext.defaultContext;
+
+        if (hasCustomContext) {
+          if (_config.badCertificateCallback != null) {
+            client.badCertificateCallback = (
+              X509Certificate cert,
+              String host,
+              int port,
+            ) {
+              final result =
+                  _config.badCertificateCallback!(cert, host, port);
+              if (!result) {
+                _certificateErrorCallback?.call(cert, host, port);
+              }
+              return result;
+            };
+          } else if (_certificateErrorCallback != null) {
+            client.badCertificateCallback = (
+              X509Certificate cert,
+              String host,
+              int port,
+            ) {
+              _certificateErrorCallback!(cert, host, port);
+              return false;
+            };
+          }
+        }
+
         _channel = IOWebSocketChannel.connect(
           uri,
           protocols: _config.protocols,
           headers: _config.headers,
-          customClient: _config.httpClient,
+          customClient: client,
           pingInterval: _config.pingInterval,
           connectTimeout: _config.connectionTimeout,
         );

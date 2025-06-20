@@ -6,11 +6,9 @@ import 'dart:typed_data';
 import 'package:flutter/services.dart' show rootBundle;
 
 Future<HttpClient> createPinnedHttpClient({required String assetPath}) async {
-  // Load the PEM from assets
   final ByteData certData = await rootBundle.load(assetPath);
   final Uint8List certBytes = certData.buffer.asUint8List();
 
-  // Set up a SecurityContext with just that one cert
   final SecurityContext securityContext = SecurityContext(
     withTrustedRoots: false,
   );
@@ -18,14 +16,12 @@ Future<HttpClient> createPinnedHttpClient({required String assetPath}) async {
 
   final HttpClient client = HttpClient(context: securityContext);
 
-  // Optional: you can do additional runtime checks here if you like:
   client.badCertificateCallback =
       (X509Certificate cert, String host, int port) {
-        // Return true only if this exact PEM matches
-        final String incomingPem = cert.pem;
-        final String pinnedPem = utf8.decode(certBytes);
-        return incomingPem == pinnedPem;
-      };
+    final String incomingPem = cert.pem;
+    final String pinnedPem = utf8.decode(certBytes);
+    return incomingPem == pinnedPem;
+  };
 
   return client;
 }
@@ -37,9 +33,8 @@ void main() {
     late WebSocketConfig config;
     TestWidgetsFlutterBinding.ensureInitialized();
     setUp(() async {
-      final httpClient = await createPinnedHttpClient(
-        assetPath: 'assets/ssl/test_cert.pem',
-      );
+      final httpClient =
+          await createPinnedHttpClient(assetPath: 'assets/ssl/test_cert.pem');
 
       config = WebSocketConfig(
         url: 'ws://124.222.6.60:8800',
@@ -55,7 +50,14 @@ void main() {
         httpClient: httpClient,
       );
       mockAdapter = MockWebSocketAdapter(config);
-      client = WebSocketClient(mockAdapter);
+      client = WebSocketClient(
+        mockAdapter,
+        certificateErrorCallback: (
+          X509Certificate cert,
+          String host,
+          int port,
+        ) {},
+      );
     });
 
     tearDown(() async {

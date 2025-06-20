@@ -2,9 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:adapter_websocket/websocket_plugin.dart';
 
+import '../src/certificate_callback.dart';
+
 /// Mock WebSocket adapter for testing purposes
 class MockWebSocketAdapter implements WebSocketAdapter {
   final WebSocketConfig _config;
+  CertificateErrorCallback? _certificateErrorCallback;
 
   final StreamController<WebSocketState> _stateController =
       StreamController<WebSocketState>.broadcast();
@@ -27,6 +30,11 @@ class MockWebSocketAdapter implements WebSocketAdapter {
   Timer? _instabilityTimer;
 
   MockWebSocketAdapter(this._config);
+
+  @override
+  void setCertificateErrorCallback(CertificateErrorCallback callback) {
+    _certificateErrorCallback = callback;
+  }
 
   @override
   Stream<WebSocketState> get stateStream => _stateController.stream;

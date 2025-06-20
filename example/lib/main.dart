@@ -44,11 +44,9 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
     _initializeWebSocket();
   }
   Future<HttpClient> createPinnedHttpClient({required String assetPath}) async {
-    // Load the PEM from assets
     final ByteData certData = await rootBundle.load(assetPath);
     final Uint8List certBytes = certData.buffer.asUint8List();
 
-    // Set up a SecurityContext with just that one cert
     final SecurityContext securityContext = SecurityContext(
       withTrustedRoots: false,
     );
@@ -56,10 +54,8 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
 
     final HttpClient client = HttpClient(context: securityContext);
 
-    // Optional: you can do additional runtime checks here if you like:
     client.badCertificateCallback =
         (X509Certificate cert, String host, int port) {
-      // Return true only if this exact PEM matches
       final String incomingPem = cert.pem;
       final String pinnedPem = utf8.decode(certBytes);
       return incomingPem == pinnedPem;
@@ -68,7 +64,8 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
     return client;
   }
   Future<void> _initializeWebSocket() async {
-
+    final httpClient =
+        await createPinnedHttpClient(assetPath: 'ssl/test_cert.pem');
 
     final config = WebSocketConfig(
       url: _urlController.text,
@@ -78,7 +75,7 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
       useExponentialBackoff: true,
       maxReconnectDelay: Duration(minutes: 2),
       enableLogging: true,
-      httpClient: await createPinnedHttpClient(assetPath: 'ssl/test_cert.pem'),
+      httpClient: httpClient,
       // Enhanced heartbeat configuration
       enableHeartbeat: true,
       heartbeatInterval: Duration(seconds: 15),
@@ -90,7 +87,18 @@ class _WebSocketDemoState extends State<WebSocketDemo> {
 
     final adapter = WebSocketChannelAdapter(config);
 
-    _client = WebSocketClient(adapter);
+    _client = WebSocketClient(
+      adapter,
+      certificateErrorCallback: (
+        X509Certificate cert,
+        String host,
+        int port,
+      ) {
+        setState(() {
+          _logs.add('Bad certificate from ' + host);
+        });
+      },
+    );
 
     // Listen to state changes
     _client?.stateStream.listen((state) {

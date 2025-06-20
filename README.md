@@ -92,6 +92,31 @@ maxMissedHeartbeats: 3,
 );
 ```
 
+### SSL Configuration
+
+```dart
+final (context, callback) = await setupSecurity();
+
+final config = WebSocketConfig(
+  url: 'wss://secure.example.com',
+  sslContext: context,
+  badCertificateCallback: callback,
+  // httpClient: myPinnedHttpClient,
+);
+
+final adapter = WebSocketChannelAdapter(config);
+final client = WebSocketClient(
+  adapter,
+  certificateErrorCallback: (
+    X509Certificate cert,
+    String host,
+    int port,
+  ) {
+    print('Invalid certificate from ' + host);
+  },
+);
+```
+
 ## Architecture
 
 ### Adapter Pattern Implementation

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'websocket_config.dart';
 import 'websocket_message.dart';
+import 'certificate_callback.dart';
 import 'websocket_state.dart';
 
 /// Abstract adapter interface for WebSocket implementations
@@ -35,6 +36,9 @@ abstract class WebSocketAdapter {
 
   /// Disposes of the adapter and cleans up resources
   Future<void> dispose();
+
+  /// Sets the callback for certificate validation errors
+  void setCertificateErrorCallback(CertificateErrorCallback callback);
 
   /// Checks if the connection is currently active
   bool get isConnected => currentState == WebSocketState.connected;
