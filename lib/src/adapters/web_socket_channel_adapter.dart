@@ -79,11 +79,7 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
         // Create a client if none was provided
         client ??= HttpClient();
 
-        final hasCustomContext =
-            client.context != SecurityContext.defaultContext;
-
-        if (hasCustomContext) {
-          if (_config.badCertificateCallback != null) {
+        if (_config.badCertificateCallback != null) {
             client.badCertificateCallback = (
               X509Certificate cert,
               String host,
@@ -106,7 +102,7 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
               return false;
             };
           }
-        }
+        
 
         _channel = IOWebSocketChannel.connect(
           uri,
