@@ -75,17 +75,9 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
         _channel = WebSocketChannel.connect(uri, protocols: _config.protocols);
       } else {
         HttpClient? client = _config.httpClient;
-        SecurityContext? context = _config.sslContext;
 
         // Create a client if none was provided
-        if (client == null) {
-          client = HttpClient(context: context);
-        } else if (context != null &&
-            client.context == SecurityContext.defaultContext) {
-          // If the user supplied a context but the provided HttpClient uses the
-          // default one, create a new client with the desired context.
-          client = HttpClient(context: context);
-        }
+        client ??= HttpClient();
 
         final hasCustomContext =
             client.context != SecurityContext.defaultContext;

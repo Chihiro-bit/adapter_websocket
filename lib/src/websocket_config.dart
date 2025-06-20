@@ -15,7 +15,6 @@ class WebSocketConfig {
   final Map<String, String>? headers;
   final HttpClient? httpClient;
   final BadCertificateCallback? badCertificateCallback;
-  final SecurityContext? sslContext;
   final Duration? pingInterval;
   final Duration connectionTimeout;
   final Duration reconnectDelay;
@@ -56,7 +55,6 @@ class WebSocketConfig {
     this.backoffMultiplier = 2.0,
     this.httpClient,
     this.badCertificateCallback,
-    this.sslContext,
   });
 
   /// Creates a copy of this config with updated values
@@ -81,7 +79,6 @@ class WebSocketConfig {
     double? backoffMultiplier,
     HttpClient? httpClient,
     BadCertificateCallback? badCertificateCallback,
-    SecurityContext? sslContext,
   }) {
     return WebSocketConfig(
       url: url ?? this.url,
@@ -105,7 +102,6 @@ class WebSocketConfig {
       httpClient: httpClient ?? this.httpClient,
       badCertificateCallback:
           badCertificateCallback ?? this.badCertificateCallback,
-      sslContext: sslContext ?? this.sslContext,
     );
   }
 

@@ -95,13 +95,12 @@ maxMissedHeartbeats: 3,
 ### SSL Configuration
 
 ```dart
-final (context, callback) = await setupSecurity();
+final (httpClient, callback) = await setupSecurity();
 
 final config = WebSocketConfig(
   url: 'wss://secure.example.com',
-  sslContext: context,
+  httpClient: httpClient,
   badCertificateCallback: callback,
-  // httpClient: myPinnedHttpClient,
 );
 
 final adapter = WebSocketChannelAdapter(config);
