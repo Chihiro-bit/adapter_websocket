@@ -19,6 +19,7 @@ class WebSocketConfig {
   final Duration heartbeatTimeout;
   final String heartbeatMessage;
   final String? expectedPongMessage;
+  final RegExp? expectedPongMessagePattern;
   final int maxMissedHeartbeats;
   final bool useExponentialBackoff;
   final Duration maxReconnectDelay;
@@ -40,6 +41,7 @@ class WebSocketConfig {
     this.heartbeatTimeout = const Duration(seconds: 10),
     this.heartbeatMessage = 'ping',
     this.expectedPongMessage,
+    this.expectedPongMessagePattern,
     this.maxMissedHeartbeats = 3,
     this.useExponentialBackoff = true,
     this.maxReconnectDelay = const Duration(minutes: 5),
