@@ -166,7 +166,7 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
 
       if (data is String) {
         // Check if it's a heartbeat response
-        if (_isHeartbeatMessage(data)) {
+        if (_config.enableHeartbeat && _isHeartbeatMessage(data)) {
           message = WebSocketMessage(
             data: data,
             timestamp: DateTime.now(),
@@ -215,11 +215,9 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
 
   /// Checks if a message is a heartbeat message
   bool _isHeartbeatMessage(String message) {
-    final lowerMessage = message.toLowerCase();
-    return lowerMessage == 'pong' ||
-        lowerMessage == _config.expectedPongMessage?.toLowerCase() ||
-        lowerMessage.contains('ping') ||
-        lowerMessage.contains('pong');
+    if (_config.expectedPongMessage == null && _config.expectedPongMessagePattern == null) return false;
+
+    return message == _config.expectedPongMessage || _config.expectedPongMessagePattern!.hasMatch(message);
   }
 
   @override
