@@ -5,12 +5,19 @@ import 'websocket_message.dart';
 import 'websocket_state.dart';
 import 'heartbeat_manager.dart';
 import 'reconnection_manager.dart';
+import 'websocket_interceptor.dart';
 
 /// High-level WebSocket client that uses adapters for implementation
 class WebSocketClient {
   final WebSocketAdapter _adapter;
   final StreamController<String> _logController = StreamController<String>.broadcast();
   final StreamController<Map<String, dynamic>> _statsController = StreamController<Map<String, dynamic>>.broadcast();
+  final StreamController<WebSocketMessage> _messageController =
+      StreamController<WebSocketMessage>.broadcast();
+  final StreamController<dynamic> _errorController =
+      StreamController<dynamic>.broadcast();
+
+  final List<WebSocketInterceptor> interceptors = [];
   
   late final HeartbeatManager _heartbeatManager;
   late final ReconnectionManager _reconnectionManager;
@@ -29,10 +36,10 @@ class WebSocketClient {
   Stream<WebSocketState> get stateStream => _adapter.stateStream;
 
   /// Stream of incoming messages
-  Stream<WebSocketMessage> get messageStream => _adapter.messageStream;
+  Stream<WebSocketMessage> get messageStream => _messageController.stream;
 
   /// Stream of connection errors
-  Stream<dynamic> get errorStream => _adapter.errorStream;
+  Stream<dynamic> get errorStream => _errorController.stream;
 
   /// Stream of log messages (if logging is enabled)
   Stream<String> get logStream => _logController.stream;
@@ -72,6 +79,16 @@ class WebSocketClient {
     };
   }
 
+  /// Registers a WebSocket interceptor
+  void addInterceptor(WebSocketInterceptor interceptor) {
+    interceptors.add(interceptor);
+  }
+
+  /// Removes a previously registered interceptor
+  void removeInterceptor(WebSocketInterceptor interceptor) {
+    interceptors.remove(interceptor);
+  }
+
   /// Establishes a WebSocket connection with automatic reconnection support
   Future<void> connect() async {
     if (_disposed) {
@@ -95,10 +112,11 @@ class WebSocketClient {
       _publishStats();
     } catch (error) {
       _log('Failed to connect: $error');
-      
+
       if (config.autoReconnect) {
         _reconnectionManager.startReconnection();
       }
+      _handleError(error);
       rethrow;
     }
   }
@@ -108,9 +126,29 @@ class WebSocketClient {
     if (!isConnected) {
       throw StateError('WebSocket is not connected');
     }
-    
+
     _log('Sending message: ${message.type ?? 'unknown'} type');
-    await _adapter.sendMessage(message);
+
+    WebSocketMessage? processed = message;
+    for (final interceptor in interceptors) {
+      try {
+        processed = await interceptor.onSend(processed!);
+        if (processed == null) {
+          _log('Message cancelled by onSend interceptor');
+          return;
+        }
+      } catch (e) {
+        _handleError(e);
+        return;
+      }
+    }
+
+    try {
+      await _adapter.sendMessage(processed!);
+    } catch (error) {
+      _handleError(error);
+      rethrow;
+    }
   }
 
   /// Sends raw data through the WebSocket
@@ -118,9 +156,14 @@ class WebSocketClient {
     if (!isConnected) {
       throw StateError('WebSocket is not connected');
     }
-    
+
     _log('Sending raw data');
-    await _adapter.send(data);
+    try {
+      await _adapter.send(data);
+    } catch (error) {
+      _handleError(error);
+      rethrow;
+    }
   }
 
   /// Sends a text message
@@ -157,20 +200,22 @@ class WebSocketClient {
   /// Disposes of the client and cleans up resources
   Future<void> dispose() async {
     if (_disposed) return;
-    
+
     _disposed = true;
     _log('Disposing WebSocket client');
-    
+
     _heartbeatManager.dispose();
     _reconnectionManager.dispose();
-    
+
     await _stateSubscription?.cancel();
     await _messageSubscription?.cancel();
     await _errorSubscription?.cancel();
-    
+
     await _adapter.dispose();
     await _logController.close();
     await _statsController.close();
+    await _messageController.close();
+    await _errorController.close();
   }
 
   /// Initializes the heartbeat and reconnection managers
@@ -230,7 +275,7 @@ class WebSocketClient {
 
   /// Sets up stream subscriptions
   void _setupSubscriptions() {
-    _stateSubscription = stateStream.listen((state) {
+    _stateSubscription = _adapter.stateStream.listen((state) {
       _log('State changed to: ${state.description}');
       
       if (state == WebSocketState.connected) {
@@ -249,15 +294,45 @@ class WebSocketClient {
       _publishStats();
     });
 
-    _messageSubscription = messageStream.listen((message) {
-      // Let heartbeat manager handle incoming messages
-      _heartbeatManager.handleIncomingMessage(message);
-    });
+    _messageSubscription = _adapter.messageStream.listen(_handleIncomingMessage);
 
-    _errorSubscription = errorStream.listen((error) {
-      _log('WebSocket error: $error');
-      _publishStats();
-    });
+    _errorSubscription = _adapter.errorStream.listen(_handleError);
+  }
+
+  Future<void> _handleIncomingMessage(WebSocketMessage message) async {
+    try {
+      WebSocketMessage? processed = message;
+      for (final interceptor in interceptors) {
+        processed = await interceptor.onReceive(processed!);
+        if (processed == null) {
+          _log('Message cancelled by onReceive interceptor');
+          return;
+        }
+      }
+      // Let heartbeat manager handle incoming messages
+      _heartbeatManager.handleIncomingMessage(processed);
+      if (!_messageController.isClosed) {
+        _messageController.add(processed);
+      }
+    } catch (e) {
+      _handleError(e);
+    }
+  }
+
+  void _handleError(dynamic error) {
+    _log('WebSocket error: $error');
+    for (final interceptor in interceptors) {
+      try {
+        final result = interceptor.onError(error);
+        if (result is Future) {
+          result.catchError((_) {});
+        }
+      } catch (_) {}
+    }
+    if (!_errorController.isClosed) {
+      _errorController.add(error);
+    }
+    _publishStats();
   }
 
   /// Publishes current statistics

@@ -92,6 +92,34 @@ maxMissedHeartbeats: 3,
 );
 ```
 
+### Interceptors
+
+Interceptors let you inspect or modify messages as they are sent and received and react to errors.
+
+```dart
+class LoggingInterceptor implements WebSocketInterceptor {
+  @override
+  FutureOr<WebSocketMessage?> onSend(WebSocketMessage message) async {
+    print('Outgoing: ${message.data}');
+    return message; // return null to cancel
+  }
+
+  @override
+  FutureOr<WebSocketMessage?> onReceive(WebSocketMessage message) async {
+    print('Incoming: ${message.data}');
+    return message;
+  }
+
+  @override
+  FutureOr<void> onError(dynamic error) {
+    print('Error: $error');
+  }
+}
+
+final client = WebSocketClient(adapter);
+client.addInterceptor(LoggingInterceptor());
+```
+
 ## Architecture
 
 ### Adapter Pattern Implementation
