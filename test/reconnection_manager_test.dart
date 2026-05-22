@@ -14,7 +14,7 @@ void main() {
       logs.clear();
       reconnectCallCount = 0;
       shouldFailReconnect = false;
-      
+
       config = WebSocketConfig(
         url: 'ws://124.222.6.60:8800',
         autoReconnect: true,
@@ -39,11 +39,14 @@ void main() {
       );
     });
 
+    tearDown(() {
+      reconnectionManager.dispose();
+    });
+
 
 
     test('should attempt reconnection with exponential backoff', () async {
       bool attemptCalled = false;
-      var reconnectionManager;
       reconnectionManager.setOnReconnectAttempt(() {
         attemptCalled = true;
       });
@@ -82,16 +85,12 @@ void main() {
       });
 
       shouldFailReconnect = true;
-      
-      // Exhaust all attempts
-      for (int i = 0; i < config.maxReconnectAttempts; i++) {
-        reconnectionManager.startReconnection();
-        await Future.delayed(Duration(milliseconds: 150));
-      }
-      
-      // Try one more time
+
+      // Start a single reconnection - internal retry handles subsequent attempts.
+      // Delays with exponential backoff: ~100ms + ~200ms + ~400ms = ~700ms total.
       reconnectionManager.startReconnection();
-      
+      await Future.delayed(Duration(milliseconds: 900));
+
       expect(maxAttemptsCalled, isTrue);
       expect(logs.any((log) => log.contains('Maximum reconnection attempts')), isTrue);
     });

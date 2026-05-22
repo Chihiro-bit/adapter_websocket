@@ -117,10 +117,13 @@ class HeartbeatManager {
 
     // Any incoming message indicates the connection is alive
     if (_waitingForPong) {
-      // Check if this is a pong message
-      if (message.data == _config.expectedPongMessage || 
-          (_config.expectedPongMessage == null && message.data.toString().toLowerCase().contains('pong'))) {
-        handlePong(message.data.toString());
+      final dataStr = message.data.toString();
+      final matchesExact = _config.expectedPongMessage != null && message.data == _config.expectedPongMessage;
+      final matchesPattern = _config.expectedPongMessagePattern?.hasMatch(dataStr) ?? false;
+      final fallback = _config.expectedPongMessage == null && _config.expectedPongMessagePattern == null
+          && dataStr.toLowerCase().contains('pong');
+      if (matchesExact || matchesPattern || fallback) {
+        handlePong(dataStr);
       }
     }
     
@@ -167,7 +170,7 @@ class HeartbeatManager {
       _log('Sent heartbeat: ${_config.heartbeatMessage}');
       
       // Start timeout timer if expecting a pong response
-      if (_config.expectedPongMessage != null) {
+      if (_config.expectedPongMessage != null || _config.expectedPongMessagePattern != null) {
         _waitingForPong = true;
         _startHeartbeatTimeout();
       } else {

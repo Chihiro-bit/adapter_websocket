@@ -53,7 +53,8 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 add_subdirectory("runner")
 
 # Enable the test target.
-set(include_adapter_websocket_tests TRUE)
+# Disabled: requires downloading googletest from GitHub at build time.
+# set(include_adapter_websocket_tests TRUE)
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.

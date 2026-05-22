@@ -216,8 +216,8 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
   /// Checks if a message is a heartbeat message
   bool _isHeartbeatMessage(String message) {
     if (_config.expectedPongMessage == null && _config.expectedPongMessagePattern == null) return false;
-
-    return message == _config.expectedPongMessage || _config.expectedPongMessagePattern!.hasMatch(message);
+    if (_config.expectedPongMessage != null && message == _config.expectedPongMessage) return true;
+    return _config.expectedPongMessagePattern?.hasMatch(message) ?? false;
   }
 
   @override

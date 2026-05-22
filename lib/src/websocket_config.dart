@@ -12,8 +12,8 @@ class WebSocketConfig {
   final int maxReconnectAttempts;
   final bool autoReconnect;
   final bool enableLogging;
-  
-  // Enhanced heartbeat configuration
+
+  // Heartbeat
   final bool enableHeartbeat;
   final Duration heartbeatInterval;
   final Duration heartbeatTimeout;
@@ -24,6 +24,26 @@ class WebSocketConfig {
   final bool useExponentialBackoff;
   final Duration maxReconnectDelay;
   final double backoffMultiplier;
+
+  // Feature: Message queue (offline buffer)
+  /// Buffer outgoing messages when disconnected and flush on reconnect.
+  final bool enableMessageQueue;
+
+  /// Maximum number of messages to buffer. 0 = unlimited.
+  final int maxQueueSize;
+
+  /// How long a queued message remains valid. `null` = no expiry.
+  final Duration? messageQueueTimeout;
+
+  // Feature: ACK confirmation
+  /// Require server acknowledgement for sent messages.
+  final bool enableAck;
+
+  /// How long to wait for an ACK before retrying.
+  final Duration ackTimeout;
+
+  /// Maximum retry attempts before the send Future fails.
+  final int maxAckRetries;
 
   const WebSocketConfig({
     required this.url,
@@ -47,9 +67,16 @@ class WebSocketConfig {
     this.maxReconnectDelay = const Duration(minutes: 5),
     this.backoffMultiplier = 2.0,
     this.httpClient,
+    // Message queue defaults
+    this.enableMessageQueue = false,
+    this.maxQueueSize = 100,
+    this.messageQueueTimeout,
+    // ACK defaults
+    this.enableAck = false,
+    this.ackTimeout = const Duration(seconds: 30),
+    this.maxAckRetries = 3,
   });
 
-  /// Creates a copy of this config with updated values
   WebSocketConfig copyWith({
     String? url,
     List<String>? protocols,
@@ -65,11 +92,18 @@ class WebSocketConfig {
     Duration? heartbeatTimeout,
     String? heartbeatMessage,
     String? expectedPongMessage,
+    RegExp? expectedPongMessagePattern,
     int? maxMissedHeartbeats,
     bool? useExponentialBackoff,
     Duration? maxReconnectDelay,
     double? backoffMultiplier,
     HttpClient? httpClient,
+    bool? enableMessageQueue,
+    int? maxQueueSize,
+    Duration? messageQueueTimeout,
+    bool? enableAck,
+    Duration? ackTimeout,
+    int? maxAckRetries,
   }) {
     return WebSocketConfig(
       url: url ?? this.url,
@@ -86,16 +120,26 @@ class WebSocketConfig {
       heartbeatTimeout: heartbeatTimeout ?? this.heartbeatTimeout,
       heartbeatMessage: heartbeatMessage ?? this.heartbeatMessage,
       expectedPongMessage: expectedPongMessage ?? this.expectedPongMessage,
+      expectedPongMessagePattern:
+          expectedPongMessagePattern ?? this.expectedPongMessagePattern,
       maxMissedHeartbeats: maxMissedHeartbeats ?? this.maxMissedHeartbeats,
-      useExponentialBackoff: useExponentialBackoff ?? this.useExponentialBackoff,
+      useExponentialBackoff:
+          useExponentialBackoff ?? this.useExponentialBackoff,
       maxReconnectDelay: maxReconnectDelay ?? this.maxReconnectDelay,
       backoffMultiplier: backoffMultiplier ?? this.backoffMultiplier,
       httpClient: httpClient ?? this.httpClient,
+      enableMessageQueue: enableMessageQueue ?? this.enableMessageQueue,
+      maxQueueSize: maxQueueSize ?? this.maxQueueSize,
+      messageQueueTimeout: messageQueueTimeout ?? this.messageQueueTimeout,
+      enableAck: enableAck ?? this.enableAck,
+      ackTimeout: ackTimeout ?? this.ackTimeout,
+      maxAckRetries: maxAckRetries ?? this.maxAckRetries,
     );
   }
 
   @override
-  String toString() {
-    return 'WebSocketConfig(url: $url, protocols: $protocols, autoReconnect: $autoReconnect, enableHeartbeat: $enableHeartbeat)';
-  }
+  String toString() =>
+      'WebSocketConfig(url: $url, autoReconnect: $autoReconnect, '
+      'enableHeartbeat: $enableHeartbeat, enableMessageQueue: $enableMessageQueue, '
+      'enableAck: $enableAck)';
 }

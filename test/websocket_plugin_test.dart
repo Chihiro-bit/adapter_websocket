@@ -138,8 +138,6 @@ void main() {
     });
 
     test('should handle unstable connections', () async {
-      mockAdapter.setSimulateUnstableConnection(true);
-
       final stateChanges = <WebSocketState>[];
       client.stateStream.listen((state) {
         stateChanges.add(state);
@@ -147,10 +145,13 @@ void main() {
 
       await client.connect();
 
-      // Wait for instability simulation
-      await Future.delayed(Duration(milliseconds: 200));
+      // Directly trigger a disconnection to simulate network instability
+      mockAdapter.simulateDisconnection();
 
-      // Should have multiple state changes due to instability
+      // Wait for state changes to be delivered
+      await Future.delayed(Duration(milliseconds: 100));
+
+      // Should have: connecting, connected, disconnected (at minimum)
       expect(stateChanges.length, greaterThan(2));
       expect(stateChanges, contains(WebSocketState.connected));
       expect(stateChanges, contains(WebSocketState.disconnected));
@@ -248,17 +249,17 @@ void main() {
     });
 
     test('should simulate network instability', () async {
-      adapter.setSimulateUnstableConnection(true);
-
       final stateChanges = <WebSocketState>[];
       adapter.stateStream.listen((state) {
         stateChanges.add(state);
       });
 
       await adapter.connect();
+      await Future.delayed(Duration.zero);
 
       // Trigger instability
       adapter.simulateNetworkInstability();
+      await Future.delayed(Duration.zero);
 
       expect(stateChanges, contains(WebSocketState.connected));
       expect(stateChanges, contains(WebSocketState.disconnected));

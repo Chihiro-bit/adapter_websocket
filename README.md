@@ -1,310 +1,269 @@
-# WebSocket Plugin
+# adapter_websocket
 
-A robust Flutter WebSocket plugin utilizing the Adapter design pattern for flexible WebSocket communication. This plugin provides a modular, testable, and easy-to-use interface for WebSocket connections with support for automatic reconnection, different message types, comprehensive error handling, and enhanced resilience.
+A robust Flutter WebSocket plugin built on the **Adapter design pattern**, providing a modular and fully testable interface for WebSocket communication. Features automatic reconnection, heartbeat monitoring, offline message buffering, ACK confirmation, topic-based multiplexing, transparent compression, and a flexible interceptor pipeline.
 
 ## Features
 
-- **Adapter Design Pattern**: Easy switching between different WebSocket implementations
-- **Automatic Reconnection**: Configurable auto-reconnect with exponential backoff
-- **Multiple Message Types**: Support for text, JSON, and binary messages
-- **Comprehensive State Management**: Real-time connection state tracking
-- **Error Handling**: Robust error handling and reporting
-- **Testing Support**: Built-in mock adapter for unit testing
-- **Logging**: Optional detailed logging for debugging
-- **Type Safety**: Full TypeScript-like type safety with Dart
-- **Heartbeat Mechanism**: Keep connections alive with customizable ping/pong cycles
-- **Server Inactivity Detection**: Automatically detect when the server stops responding
-- **Missed Heartbeat Tracking**: Monitor connection health with configurable thresholds
-- **Automatic Recovery**: Trigger reconnection when heartbeat failures exceed limits
-- **Enhanced Reconnection**: Intelligent retry delays that increase exponentially
-- **Jitter Support**: Randomized delays to prevent thundering herd problems
-- **Maximum Delay Caps**: Configurable upper limits for reconnection delays
-- **Connection Resilience**: Robust handling of network instability
-- **Advanced Monitoring**: Comprehensive connection and heartbeat metrics
-- **Health Monitoring**: Track connection quality and performance
-- **Detailed Logging**: Enhanced debugging with heartbeat and reconnection logs
+| Feature | Description |
+|---|---|
+| **Adapter Pattern** | Swap implementations (real / mock) without changing client code |
+| **Auto-Reconnect** | Exponential backoff with jitter and configurable retry limits |
+| **Heartbeat** | Customisable ping/pong with missed-heartbeat detection |
+| **Interceptors** | Transform or suppress messages at send/receive time (logging, auth, etc.) |
+| **Message Queue** | Buffer outgoing messages offline; flush automatically on reconnect |
+| **ACK Confirmation** | Reliable delivery with server acknowledgement and auto-retry |
+| **Topic Channels** | Multiplex logical channels over one connection |
+| **Compression** | Transparent gzip compression for large messages |
+| **Connection Pool** | Balance load across multiple server endpoints |
+| **Statistics** | Real-time metrics for heartbeat, reconnection, queue, and ACK |
+| **Mock Adapter** | Full-featured test double with failure injection |
 
 ## Installation
 
-Add this to your package's `pubspec.yaml` file:
-
 ```yaml
 dependencies:
-adapter_websocket: 0.0.1
+  adapter_websocket: ^0.1.0
 ```
 
 ## Quick Start
 
-### Basic Usage
-
 ```dart
-import 'package:websocket_plugin/websocket_plugin.dart';
+import 'package:adapter_websocket/websocket_plugin.dart';
 
-// Create configuration
 final config = WebSocketConfig(
-url: 'wss://echo.websocket.org',
-autoReconnect: true,
-maxReconnectAttempts: 3,
-enableLogging: true,
+  url: 'wss://echo.websocket.org',
+  autoReconnect: true,
+  enableLogging: true,
 );
 
-// Create adapter and client
-final adapter = WebSocketChannelAdapter(config);
-final client = WebSocketClient(adapter);
+final client = WebSocketClient(WebSocketChannelAdapter(config));
 
-// Listen to messages
-client.messageStream.listen((message) {
-print('Received: ${message.data}');
-});
+client.messageStream.listen((msg) => print('Received: ${msg.data}'));
 
-// Connect and send messages
 await client.connect();
 await client.sendText('Hello, WebSocket!');
 await client.sendJson({'type': 'greeting', 'message': 'Hello'});
+await client.dispose();
 ```
 
-### Advanced Configuration
+## Configuration
 
 ```dart
 final config = WebSocketConfig(
-url: 'wss://your-websocket-server.com',
-protocols: ['chat', 'superchat'],
-headers: {'Authorization': 'Bearer your-token'},
-pingInterval: Duration(seconds: 30),
-connectionTimeout: Duration(seconds: 10),
-reconnectDelay: Duration(seconds: 5),
-maxReconnectAttempts: 5,
-autoReconnect: true,
-enableLogging: true,
+  url: 'wss://your-server.com',
+  protocols: ['chat'],
+  headers: {'Authorization': 'Bearer token'},
+  connectionTimeout: Duration(seconds: 10),
 
-// Enhanced reconnection with exponential backoff
-useExponentialBackoff: true,
-maxReconnectDelay: Duration(minutes: 5),
-backoffMultiplier: 2.0,
+  // Reconnection
+  autoReconnect: true,
+  maxReconnectAttempts: 5,
+  reconnectDelay: Duration(seconds: 2),
+  useExponentialBackoff: true,
+  maxReconnectDelay: Duration(minutes: 5),
+  backoffMultiplier: 2.0,
 
-// Heartbeat configuration
-enableHeartbeat: true,
-heartbeatInterval: Duration(seconds: 30),
-heartbeatTimeout: Duration(seconds: 10),
-heartbeatMessage: 'ping',
-expectedPongMessage: 'pong',
-maxMissedHeartbeats: 3,
+  // Heartbeat
+  enableHeartbeat: true,
+  heartbeatInterval: Duration(seconds: 30),
+  heartbeatTimeout: Duration(seconds: 10),
+  heartbeatMessage: 'ping',
+  expectedPongMessage: 'pong',
+  maxMissedHeartbeats: 3,
+
+  // Message queue
+  enableMessageQueue: true,
+  maxQueueSize: 200,
+  messageQueueTimeout: Duration(minutes: 10),
+
+  // ACK
+  enableAck: true,
+  ackTimeout: Duration(seconds: 30),
+  maxAckRetries: 3,
 );
 ```
 
-## Architecture
+## Feature Guide
 
-### Adapter Pattern Implementation
+### Interceptors
 
-The plugin uses the Adapter design pattern to provide flexibility in WebSocket implementations:
+Interceptors run in order on every outgoing and incoming message. Return `null` to suppress a message entirely.
 
 ```dart
-// Abstract adapter interface
-abstract class WebSocketAdapter {
-Stream<WebSocketState> get stateStream;
-Stream<WebSocketMessage> get messageStream;
-Stream<dynamic> get errorStream;
-Stream<Map<String, dynamic>> get statsStream;
-
-Future<void> connect();
-Future<void> sendMessage(WebSocketMessage message);
-Future<void> disconnect([int? code, String? reason]);
-Future<void> forceReconnect();
+class AuthInterceptor extends WebSocketInterceptor {
+  @override
+  Future<WebSocketMessage?> onSend(WebSocketMessage message) async {
+    final meta = {...?message.metadata, 'token': myToken};
+    return WebSocketMessage(
+      data: message.data,
+      timestamp: message.timestamp,
+      type: message.type,
+      metadata: meta,
+    );
+  }
 }
 
-// Concrete implementation using web_socket_channel
-class WebSocketChannelAdapter implements WebSocketAdapter {
-// Implementation details...
-}
-
-// Mock implementation for testing
-class MockWebSocketAdapter implements WebSocketAdapter {
-// Mock implementation...
-}
+client.addInterceptor(AuthInterceptor());
+client.addInterceptor(LoggingInterceptor(logger: print));
 ```
 
-### Key Components
+### Message Queue (Offline Buffer)
 
-1. **WebSocketClient**: High-level client interface with auto-reconnection
-2. **WebSocketAdapter**: Abstract interface for different implementations
-3. **WebSocketConfig**: Configuration class for connection parameters
-4. **WebSocketMessage**: Typed message container with metadata
-5. **WebSocketState**: Enumeration of connection states
-6. **WebSocketStats**: Comprehensive statistics for connection and heartbeat health
+Enable in `WebSocketConfig`. Messages sent while disconnected are buffered and flushed automatically on reconnect.
 
-## Message Types
-
-### Text Messages
 ```dart
-await client.sendText('Hello, World!');
-```
-
-### JSON Messages
-```dart
-await client.sendJson({
-'type': 'chat',
-'message': 'Hello',
-'timestamp': DateTime.now().toIso8601String(),
-});
-```
-
-### Binary Messages
-```dart
-await client.sendBinary([1, 2, 3, 4, 5]);
-```
-
-### Custom Messages
-```dart
-final message = WebSocketMessage(
-data: 'custom data',
-timestamp: DateTime.now(),
-type: 'custom',
-metadata: {'priority': 'high'},
+final config = WebSocketConfig(
+  url: 'wss://server.com',
+  enableMessageQueue: true,
+  maxQueueSize: 100,
+  messageQueueTimeout: Duration(minutes: 5),
 );
-await client.sendMessage(message);
+
+// Safe to call even when offline — message is queued
+await client.sendText('will be sent on reconnect');
+```
+
+### ACK Confirmation
+
+The client injects a unique `__ack_id__` into each message metadata. The server must reply with `{"__ack__": "<id>"}` to confirm receipt.
+
+```dart
+final config = WebSocketConfig(
+  url: 'wss://server.com',
+  enableAck: true,
+  ackTimeout: Duration(seconds: 30),
+  maxAckRetries: 3,
+);
+
+// Returns only after server ACK, or throws TimeoutException
+await client.sendMessage(
+  WebSocketMessage.json({'type': 'order', 'id': 42}),
+  useAck: true,
+);
+```
+
+### Topic Channels (Multiplexing)
+
+Send and receive on named logical channels over a single connection.
+
+Wire format: `{"topic":"room:lobby","event":"new_message","payload":{…}}`
+
+```dart
+final lobby = client.channel('room:lobby');
+final alerts = client.channel('system:alerts');
+
+// Listen per topic
+lobby.messageStream.listen((msg) => print('Lobby: ${msg.data}'));
+alerts.messageStream.listen((msg) => print('Alert: ${msg.data}'));
+
+// Send to a topic
+await lobby.send('new_message', {'text': 'Hello!', 'user': 'Alice'});
+```
+
+### Compression
+
+Add `CompressionInterceptor` to automatically gzip messages above the byte threshold. Available on native platforms only (not web).
+
+```dart
+client.addInterceptor(CompressionInterceptor(threshold: 1024)); // compress if > 1 KB
+```
+
+### Connection Pool
+
+Distribute load across multiple server endpoints.
+
+```dart
+final pool = WebSocketPool(
+  configs: [
+    WebSocketConfig(url: 'wss://server1.example.com'),
+    WebSocketConfig(url: 'wss://server2.example.com'),
+    WebSocketConfig(url: 'wss://server3.example.com'),
+  ],
+  strategy: PoolStrategy.roundRobin,
+);
+
+await pool.connectAll();
+
+final client = pool.acquire();
+await client.sendText('hello');
+
+await pool.broadcast('ping'); // sends to all connected clients
+await pool.dispose();
 ```
 
 ## State Management
 
-The plugin provides real-time state tracking:
-
 ```dart
 client.stateStream.listen((state) {
-switch (state) {
-case WebSocketState.connecting:
-print('Connecting...');
-break;
-case WebSocketState.connected:
-print('Connected!');
-break;
-case WebSocketState.disconnecting:
-print('Disconnecting...');
-break;
-case WebSocketState.disconnected:
-print('Disconnected');
-break;
-case WebSocketState.error:
-print('Connection error');
-break;
-}
+  switch (state) {
+    case WebSocketState.connecting:    print('Connecting…'); break;
+    case WebSocketState.connected:     print('Connected'); break;
+    case WebSocketState.disconnecting: print('Disconnecting…'); break;
+    case WebSocketState.disconnected:  print('Disconnected'); break;
+    case WebSocketState.error:         print('Error'); break;
+  }
 });
 ```
 
-## Error Handling
-
-Comprehensive error handling with detailed error streams:
+## Message Types
 
 ```dart
-client.errorStream.listen((error) {
-print('WebSocket error: $error');
-// Handle error appropriately
+await client.sendText('plain text');
+await client.sendJson({'key': 'value'});
+await client.sendBinary([0x01, 0x02, 0x03]);
+
+// Custom message
+await client.sendMessage(WebSocketMessage(
+  data: 'custom',
+  timestamp: DateTime.now(),
+  type: 'custom',
+  metadata: {'priority': 'high'},
+));
+```
+
+## Statistics
+
+```dart
+client.statsStream.listen((stats) {
+  print('Queue: ${stats['messageQueue']['queueLength']}');
+  print('Pending ACKs: ${stats['ack']['pendingAcks']}');
+  print('Topics: ${stats['channels']['activeTopics']}');
+  print('Missed heartbeats: ${stats['heartbeat']['missedHeartbeats']}');
 });
 ```
 
 ## Testing
 
-The plugin includes enhanced mock capabilities for testing heartbeat and reconnection scenarios:
-
-```dart
-import 'package:flutter_test/flutter_test.dart';
-import 'package:websocket_plugin/websocket_plugin.dart';
-
-void main() {
-test('should send and receive messages', () async {
-final config = WebSocketConfig(url: 'wss://test.example.com');
-final mockAdapter = MockWebSocketAdapter(config);
-final client = WebSocketClient(mockAdapter);
-
-    await client.connect();
-    await client.sendText('test message');
-    
-    expect(mockAdapter.sentMessages.length, equals(1));
-    expect(mockAdapter.sentMessages.first.data, equals('test message'));
-    
-    // Simulate receiving a message
-    mockAdapter.simulateTextMessage('response');
-    
-    // Verify message was received
-    // ... test assertions
-});
-
-test('should handle heartbeat timeouts', () async {
-final config = WebSocketConfig(
-url: 'wss://test.com',
-enableHeartbeat: true,
-heartbeatInterval: Duration(milliseconds: 100),
-maxMissedHeartbeats: 2,
-);
-
-    final mockAdapter = MockWebSocketAdapter(config);
-    mockAdapter.setAutoRespondToPing(false); // Simulate unresponsive server
-    
-    final client = WebSocketClient(mockAdapter);
-    
-    // Monitor for reconnection attempts
-    bool reconnectionTriggered = false;
-    client.statsStream.listen((stats) {
-      if (stats['reconnection']['isReconnecting'] == true) {
-        reconnectionTriggered = true;
-      }
-    });
-    
-    await client.connect();
-    await Future.delayed(Duration(milliseconds: 500));
-    
-    expect(reconnectionTriggered, isTrue);
-});
-
-test('should simulate network instability', () async {
-final mockAdapter = MockWebSocketAdapter(config);
-mockAdapter.setSimulateUnstableConnection(true);
-
-    final client = WebSocketClient(mockAdapter);
-    await client.connect();
-    
-    // Connection will randomly disconnect and reconnect
-    // Perfect for testing resilience
-});
-}
-```
-
-## Logging
-
-Enable detailed logging for debugging:
-
 ```dart
 final config = WebSocketConfig(
-url: 'wss://your-server.com',
-enableLogging: true,
+  url: 'wss://test.example.com',
+  enableMessageQueue: true,
+  enableAck: true,
 );
+final mock = MockWebSocketAdapter(config);
+final client = WebSocketClient(mock);
 
-client.logStream.listen((log) {
-print('WebSocket Log: $log');
-});
+await client.connect();
+
+// Send while offline
+await mock.disconnect();
+await client.sendText('queued message');  // queued, not thrown
+
+// Reconnect — queue is flushed automatically
+await client.connect();
+expect(mock.sentMessages.length, greaterThan(0));
 ```
 
 ## Best Practices
 
-1. **Always dispose clients**: Call `client.dispose()` when done
-2. **Handle connection states**: Listen to state changes for UI updates
-3. **Implement error handling**: Always listen to error streams
-4. **Use appropriate message types**: Choose the right message type for your data
-5. **Configure timeouts**: Set appropriate connection and reconnection timeouts
-6. **Test with mocks**: Use the mock adapter for unit testing
-7. **Configure appropriate heartbeat intervals** based on your network conditions
-8. **Use exponential backoff** for production environments
-9. **Monitor connection statistics** to optimize settings
-10. **Test with mock adapter** to verify resilience
-11. **Enable logging** during development for debugging
+1. Always call `client.dispose()` when done.
+2. Use `MockWebSocketAdapter` for unit tests — no network required.
+3. Enable `enableMessageQueue` for critical data to survive disconnections.
+4. Use `enableAck` only for important messages that need guaranteed delivery.
+5. Add `LoggingInterceptor` during development to trace all messages.
+6. Use `CompressionInterceptor` for large JSON payloads to save bandwidth.
+7. Use `WebSocketPool` when connecting to clustered or replicated servers.
 
-## Examples
-
-See the `example/` directory for a complete Flutter app demonstrating all features of the WebSocket plugin.
-
-## Contributing
-
-Contributions are welcome! Please read our contributing guidelines and submit pull requests to our repository.
- 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT License — see LICENSE for details.
