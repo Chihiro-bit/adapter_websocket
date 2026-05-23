@@ -1,3 +1,13 @@
+## 0.1.3
+
+### Improvements
+
+- Refactored `WebSocketChannelAdapter` internals to fully support the WASM platform, removing remaining `dart:io` dependencies from the connection path via conditional imports.
+- Improved `CompressionInterceptor` reliability on native platforms.
+- Added GitHub Pages live demo (automatically deployed on every push to `master`).
+
+---
+
 ## 0.1.2
 
 ### Bug Fixes

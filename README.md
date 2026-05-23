@@ -4,6 +4,7 @@
 [![CI](https://github.com/Chihiro-bit/adapter_websocket/actions/workflows/dart.yml/badge.svg)](https://github.com/Chihiro-bit/adapter_websocket/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-android%20%7C%20ios%20%7C%20web%20%7C%20macos%20%7C%20linux%20%7C%20windows-lightgrey)](https://pub.dev/packages/adapter_websocket)
+[![Live Demo](https://img.shields.io/badge/demo-live-brightgreen)](https://chihiro-bit.github.io/adapter_websocket/)
 
 A production-ready Flutter WebSocket package built on the **Adapter pattern**. Swap real and mock implementations without touching client code, while getting automatic reconnection, heartbeat monitoring, offline message buffering, ACK confirmation, topic-based multiplexing, transparent compression, and a flexible interceptor pipeline out of the box.
 
@@ -11,6 +12,7 @@ A production-ready Flutter WebSocket package built on the **Adapter pattern**. S
 
 ## Table of Contents
 
+- [Live Demo](#live-demo)
 - [Features](#features)
 - [Platform Support](#platform-support)
 - [Installation](#installation)
@@ -27,6 +29,16 @@ A production-ready Flutter WebSocket package built on the **Adapter pattern**. S
 - [Testing with MockAdapter](#testing-with-mockadapter)
 - [Best Practices](#best-practices)
 - [License](#license)
+
+---
+
+## Live Demo
+
+Try the example app directly in your browser — no installation required:
+
+**[https://chihiro-bit.github.io/adapter_websocket/](https://chihiro-bit.github.io/adapter_websocket/)**
+
+The demo covers WebSocket connection, real-time messaging, offline message queuing, ACK confirmation, topic channels, and connection pool.
 
 ---
 
@@ -64,7 +76,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  adapter_websocket: ^0.1.0
+  adapter_websocket: ^0.1.3
 ```
 
 Then run:
