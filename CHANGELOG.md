@@ -1,3 +1,19 @@
+## 0.1.6
+
+### Bug Fixes
+
+- Fixed Swift Package Manager (SPM) support for iOS and macOS: added `Package.swift` at `ios/adapter_websocket/Package.swift` and `macos/adapter_websocket/Package.swift`, which is the path Flutter's SPM integration actually resolves. The previously existing root-level `ios/Package.swift` and `macos/Package.swift` were not found by the pub.dev validator or Flutter tooling.
+
+---
+
+## 0.1.5
+
+### Improvements
+
+- Explicitly declared the web platform in `pubspec.yaml` (`pluginClass: none`), confirming that web WebSocket support is handled entirely in Dart via `web_socket_channel` with no native plugin class required.
+
+---
+
 ## 0.1.4
 
 ### Improvements
