@@ -39,10 +39,7 @@ void main() {
     });
 
     test('should start heartbeat and send ping messages', () async {
-      bool timeoutCalled = false;
-      heartbeatManager.setOnHeartbeatTimeout(() {
-        timeoutCalled = true;
-      });
+      heartbeatManager.setOnHeartbeatTimeout(() {});
 
       heartbeatManager.start();
       

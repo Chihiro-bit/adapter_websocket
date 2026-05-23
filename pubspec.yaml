@@ -1,6 +1,6 @@
 name: adapter_websocket
-description: "Adapter websocket"
-version: 0.1.1
+description: "A Flutter WebSocket adapter with auto-reconnect, heartbeat, interceptors, ACK confirmation, message queuing, topic multiplexing, and connection pooling."
+version: 0.1.3
 homepage: https://github.com/Chihiro-bit/adapter_websocket.git
 repository: https://github.com/Chihiro-bit/adapter_websocket.git
 

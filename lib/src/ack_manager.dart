@@ -54,7 +54,7 @@ class AckManager {
   AckManager({
     required this.timeout,
     required this.maxRetries,
-    required _RawSender sender,
+    required Future<void> Function(WebSocketMessage message) sender,
     required void Function(String) log,
   })  : _sender = sender,
         _log = log;

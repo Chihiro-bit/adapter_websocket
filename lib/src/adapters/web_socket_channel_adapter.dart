@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:web_socket_channel/io.dart';
 import '../websocket_adapter.dart';
 import '../websocket_config.dart';
 import '../websocket_message.dart';
 import '../websocket_state.dart';
+import '_ws_connect_stub.dart'
+    if (dart.library.io) '_ws_connect_io.dart';
 
 /// WebSocket adapter implementation using the web_socket_channel package
 class WebSocketChannelAdapter implements WebSocketAdapter {
@@ -40,8 +41,6 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
   @override
   WebSocketConfig get config => _config;
 
-  bool get isWeb => identical(0, 0.0);
-
   @override
   Future<void> connect() async {
     if (_currentState == WebSocketState.connecting ||
@@ -63,18 +62,7 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
         }
       });
 
-      if (isWeb) {
-        _channel = WebSocketChannel.connect(uri, protocols: _config.protocols);
-      } else {
-        _channel = IOWebSocketChannel.connect(
-          uri,
-          protocols: _config.protocols,
-          headers: _config.headers,
-          customClient: _config.httpClient,
-          pingInterval: _config.pingInterval,
-          connectTimeout: _config.connectionTimeout,
-        );
-      }
+      _channel = connectChannel(uri, _config);
 
       // Listen to the channel stream
       _channelSubscription = _channel!.stream.listen(

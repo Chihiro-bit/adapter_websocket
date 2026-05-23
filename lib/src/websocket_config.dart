@@ -1,11 +1,12 @@
-import 'dart:io';
-
 /// Configuration class for WebSocket connections
 class WebSocketConfig {
   final String url;
   final List<String>? protocols;
   final Map<String, String>? headers;
-  final HttpClient? httpClient;
+
+  /// Optional custom HTTP client for native platforms only.
+  /// Pass a `dart:io` [HttpClient] instance; ignored on web/WASM.
+  final Object? httpClient;
   final Duration? pingInterval;
   final Duration connectionTimeout;
   final Duration reconnectDelay;
@@ -97,7 +98,7 @@ class WebSocketConfig {
     bool? useExponentialBackoff,
     Duration? maxReconnectDelay,
     double? backoffMultiplier,
-    HttpClient? httpClient,
+    Object? httpClient,
     bool? enableMessageQueue,
     int? maxQueueSize,
     Duration? messageQueueTimeout,

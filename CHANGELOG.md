@@ -1,3 +1,28 @@
+## 0.1.2
+
+### Bug Fixes
+
+- Fixed `CompressionInterceptor` not actually applying gzip on native platforms — replaced stub with proper conditional import of `dart:io` `GZipCodec`.
+- Fixed `library_private_types_in_public_api` lint violations in `AckManager` and `WebSocketTopic` constructors by inlining function types.
+- Removed unnecessary `library` directive from `websocket_plugin.dart`.
+
+### Improvements
+
+- WASM compatibility: removed top-level `dart:io` dependency from `WebSocketConfig` and `WebSocketChannelAdapter` using conditional imports; package now compiles for WASM targets.
+- Added Swift Package Manager support (`Package.swift`) for iOS and macOS.
+- `WebSocketConfig.httpClient` field is now typed as `Object?` to avoid a `dart:io` import in the public API; the native adapter casts it internally.
+
+## 0.1.1
+
+### Bug Fixes
+
+- Fixed messages whose content contains the heartbeat string (e.g. JSON payloads that include `"ping"` or `"pong"`) being incorrectly classified as heartbeat responses.
+
+### Improvements
+
+- Refactored example application with additional usage demos and improved UI.
+- Added iOS and Dart CI workflows.
+
 ## 0.1.0
 
 ### New Features

@@ -17,8 +17,11 @@ class WebSocketTopic {
       StreamController<WebSocketMessage>.broadcast();
   bool _disposed = false;
 
-  WebSocketTopic({required this.topic, required _TopicSender sender})
-      : _sender = sender;
+  WebSocketTopic({
+    required this.topic,
+    required Future<void> Function(String topic, String event, dynamic payload)
+        sender,
+  }) : _sender = sender;
 
   /// Stream of messages received on this topic.
   Stream<WebSocketMessage> get messageStream => _controller.stream;
