@@ -47,6 +47,8 @@ flutter:
         pluginClass: AdapterWebsocketPlugin
       windows:
         pluginClass: AdapterWebsocketPluginCApi
+      web:
+        pluginClass: none
 
   # To add assets to your plugin package, add an assets section, like this:
   # assets:
