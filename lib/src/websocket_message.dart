@@ -50,6 +50,20 @@ class WebSocketMessage {
     );
   }
 
+  WebSocketMessage copyWith({
+    dynamic data,
+    DateTime? timestamp,
+    String? type,
+    Map<String, dynamic>? metadata,
+  }) {
+    return WebSocketMessage(
+      data: data ?? this.data,
+      timestamp: timestamp ?? this.timestamp,
+      type: type ?? this.type,
+      metadata: metadata ?? this.metadata,
+    );
+  }
+
   @override
   String toString() {
     return 'WebSocketMessage(data: $data, timestamp: $timestamp, type: $type)';

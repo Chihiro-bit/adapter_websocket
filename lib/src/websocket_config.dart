@@ -78,11 +78,23 @@ class WebSocketConfig {
     this.maxAckRetries = 3,
   });
 
+  // Sentinel used by copyWith to distinguish "not provided" from explicit null.
+  static const _unset = Object();
+
+  /// Returns a copy of this config with the given fields replaced.
+  ///
+  /// Nullable fields (`protocols`, `headers`, `pingInterval`,
+  /// `expectedPongMessage`, `expectedPongMessagePattern`, `httpClient`,
+  /// `messageQueueTimeout`) can be explicitly cleared by passing `null`:
+  ///
+  /// ```dart
+  /// final cleared = config.copyWith(protocols: null);
+  /// ```
   WebSocketConfig copyWith({
     String? url,
-    List<String>? protocols,
-    Map<String, String>? headers,
-    Duration? pingInterval,
+    Object? protocols = _unset,
+    Object? headers = _unset,
+    Object? pingInterval = _unset,
     Duration? connectionTimeout,
     Duration? reconnectDelay,
     int? maxReconnectAttempts,
@@ -92,25 +104,31 @@ class WebSocketConfig {
     Duration? heartbeatInterval,
     Duration? heartbeatTimeout,
     String? heartbeatMessage,
-    String? expectedPongMessage,
-    RegExp? expectedPongMessagePattern,
+    Object? expectedPongMessage = _unset,
+    Object? expectedPongMessagePattern = _unset,
     int? maxMissedHeartbeats,
     bool? useExponentialBackoff,
     Duration? maxReconnectDelay,
     double? backoffMultiplier,
-    Object? httpClient,
+    Object? httpClient = _unset,
     bool? enableMessageQueue,
     int? maxQueueSize,
-    Duration? messageQueueTimeout,
+    Object? messageQueueTimeout = _unset,
     bool? enableAck,
     Duration? ackTimeout,
     int? maxAckRetries,
   }) {
     return WebSocketConfig(
       url: url ?? this.url,
-      protocols: protocols ?? this.protocols,
-      headers: headers ?? this.headers,
-      pingInterval: pingInterval ?? this.pingInterval,
+      protocols: identical(protocols, _unset)
+          ? this.protocols
+          : protocols as List<String>?,
+      headers: identical(headers, _unset)
+          ? this.headers
+          : headers as Map<String, String>?,
+      pingInterval: identical(pingInterval, _unset)
+          ? this.pingInterval
+          : pingInterval as Duration?,
       connectionTimeout: connectionTimeout ?? this.connectionTimeout,
       reconnectDelay: reconnectDelay ?? this.reconnectDelay,
       maxReconnectAttempts: maxReconnectAttempts ?? this.maxReconnectAttempts,
@@ -120,18 +138,24 @@ class WebSocketConfig {
       heartbeatInterval: heartbeatInterval ?? this.heartbeatInterval,
       heartbeatTimeout: heartbeatTimeout ?? this.heartbeatTimeout,
       heartbeatMessage: heartbeatMessage ?? this.heartbeatMessage,
-      expectedPongMessage: expectedPongMessage ?? this.expectedPongMessage,
-      expectedPongMessagePattern:
-          expectedPongMessagePattern ?? this.expectedPongMessagePattern,
+      expectedPongMessage: identical(expectedPongMessage, _unset)
+          ? this.expectedPongMessage
+          : expectedPongMessage as String?,
+      expectedPongMessagePattern: identical(expectedPongMessagePattern, _unset)
+          ? this.expectedPongMessagePattern
+          : expectedPongMessagePattern as RegExp?,
       maxMissedHeartbeats: maxMissedHeartbeats ?? this.maxMissedHeartbeats,
       useExponentialBackoff:
           useExponentialBackoff ?? this.useExponentialBackoff,
       maxReconnectDelay: maxReconnectDelay ?? this.maxReconnectDelay,
       backoffMultiplier: backoffMultiplier ?? this.backoffMultiplier,
-      httpClient: httpClient ?? this.httpClient,
+      httpClient:
+          identical(httpClient, _unset) ? this.httpClient : httpClient,
       enableMessageQueue: enableMessageQueue ?? this.enableMessageQueue,
       maxQueueSize: maxQueueSize ?? this.maxQueueSize,
-      messageQueueTimeout: messageQueueTimeout ?? this.messageQueueTimeout,
+      messageQueueTimeout: identical(messageQueueTimeout, _unset)
+          ? this.messageQueueTimeout
+          : messageQueueTimeout as Duration?,
       enableAck: enableAck ?? this.enableAck,
       ackTimeout: ackTimeout ?? this.ackTimeout,
       maxAckRetries: maxAckRetries ?? this.maxAckRetries,

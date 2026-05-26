@@ -67,6 +67,11 @@ class AckManager {
 
   /// Sends [message] and returns a [Future] that completes when the server
   /// acknowledges it, or throws [TimeoutException] after retries are exhausted.
+  ///
+  /// The `__ack_id__` is embedded directly in the wire payload so the server
+  /// can read it without any custom framing. For Map payloads the key is merged
+  /// at the top level; for all other payloads the data is wrapped as
+  /// `{"__ack_id__": id, "payload": data}`.
   Future<void> sendWithAck(WebSocketMessage message) {
     if (_disposed) return Future.error(StateError('AckManager disposed'));
 
@@ -74,10 +79,19 @@ class AckManager {
     final meta = Map<String, dynamic>.from(message.metadata ?? {});
     meta[_kAckIdKey] = id;
 
+    // Embed __ack_id__ into the wire payload so the server receives it.
+    final dynamic wireData;
+    final data = message.data;
+    if (data is Map<String, dynamic>) {
+      wireData = {...data, _kAckIdKey: id};
+    } else {
+      wireData = {_kAckIdKey: id, 'payload': data};
+    }
+
     final wrapped = WebSocketMessage(
-      data: message.data,
+      data: wireData,
       timestamp: message.timestamp,
-      type: message.type,
+      type: 'json',
       metadata: meta,
     );
 

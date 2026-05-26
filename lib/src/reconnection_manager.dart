@@ -57,18 +57,22 @@ class ReconnectionManager {
       return;
     }
 
-    if (_reconnectAttempts >= _config.maxReconnectAttempts) {
-      _log('Maximum reconnection attempts (${_config.maxReconnectAttempts}) reached');
+    final maxAttempts = _config.maxReconnectAttempts;
+    final hasLimit = maxAttempts > 0;
+
+    if (hasLimit && _reconnectAttempts >= maxAttempts) {
+      _log('Maximum reconnection attempts ($maxAttempts) reached');
       _onMaxAttemptsReached?.call();
       return;
     }
 
     _isReconnecting = true;
     _reconnectAttempts++;
-    
+
     final delay = _calculateDelay();
-    _log('Scheduling reconnection attempt $_reconnectAttempts/${_config.maxReconnectAttempts} in ${delay.inSeconds}s');
-    
+    final limitText = hasLimit ? '$maxAttempts' : 'unlimited';
+    _log('Scheduling reconnection attempt $_reconnectAttempts/$limitText in ${delay.inSeconds}s');
+
     _reconnectTimer = Timer(delay, _attemptReconnection);
   }
 
@@ -90,13 +94,14 @@ class ReconnectionManager {
 
   /// Gets current reconnection statistics
   Map<String, dynamic> getStats() {
+    final maxAttempts = _config.maxReconnectAttempts;
     return {
       'isReconnecting': _isReconnecting,
       'reconnectAttempts': _reconnectAttempts,
-      'maxReconnectAttempts': _config.maxReconnectAttempts,
+      'maxReconnectAttempts': maxAttempts > 0 ? maxAttempts : 'unlimited',
       'currentDelay': _currentDelay.inSeconds,
-      'nextAttemptIn': _reconnectTimer?.isActive == true 
-          ? 'scheduled' 
+      'nextAttemptIn': _reconnectTimer?.isActive == true
+          ? 'scheduled'
           : 'not scheduled',
     };
   }

@@ -11,15 +11,15 @@ import 'websocket_topic.dart';
 /// {"topic": "room:lobby", "event": "new_message", "payload": {...}}
 /// ```
 class ChannelManager {
-  final Future<void> Function(dynamic data) _rawSend;
+  final Future<void> Function(WebSocketMessage message) _sendMessage;
   final Map<String, WebSocketTopic> _topics = {};
 
   static const _kTopic = 'topic';
   static const _kEvent = 'event';
   static const _kPayload = 'payload';
 
-  ChannelManager({required Future<void> Function(dynamic) rawSend})
-      : _rawSend = rawSend;
+  ChannelManager({required Future<void> Function(WebSocketMessage) sendMessage})
+      : _sendMessage = sendMessage;
 
   /// Returns (creating if necessary) the [WebSocketTopic] for [topic].
   WebSocketTopic channel(String topic) {
@@ -34,12 +34,12 @@ class ChannelManager {
 
   Future<void> _sendEnvelope(
       String topic, String event, dynamic payload) async {
-    final envelope = jsonEncode({
+    final message = WebSocketMessage.json({
       _kTopic: topic,
       _kEvent: event,
       _kPayload: payload,
     });
-    await _rawSend(envelope);
+    await _sendMessage(message);
   }
 
   /// Tries to route [message] to a registered topic.

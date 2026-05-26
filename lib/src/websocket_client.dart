@@ -21,6 +21,10 @@ class WebSocketClient {
       StreamController<String>.broadcast();
   final StreamController<Map<String, dynamic>> _statsController =
       StreamController<Map<String, dynamic>>.broadcast();
+  // Public message stream: only emits messages that have passed through the
+  // full receive pipeline (ACK filter → interceptors → topic router).
+  final StreamController<WebSocketMessage> _messageController =
+      StreamController<WebSocketMessage>.broadcast();
 
   // Managers
   late final HeartbeatManager _heartbeatManager;
@@ -37,6 +41,10 @@ class WebSocketClient {
   AckManager? _ackManager;
 
   bool _disposed = false;
+  // Tracks whether the current/last disconnect was intentional (user-initiated).
+  // When true the state listener will NOT start auto-reconnection.
+  bool _intentionalDisconnect = false;
+
   StreamSubscription? _stateSubscription;
   StreamSubscription? _messageSubscription;
   StreamSubscription? _errorSubscription;
@@ -50,7 +58,11 @@ class WebSocketClient {
   // ─── Public streams ────────────────────────────────────────────────────────
 
   Stream<WebSocketState> get stateStream => _adapter.stateStream;
-  Stream<WebSocketMessage> get messageStream => _adapter.messageStream;
+
+  /// Processed message stream. Only messages that pass through all receive
+  /// interceptors and are not consumed by ACK or topic routing are emitted here.
+  Stream<WebSocketMessage> get messageStream => _messageController.stream;
+
   Stream<dynamic> get errorStream => _adapter.errorStream;
   Stream<String> get logStream => _logController.stream;
   Stream<Map<String, dynamic>> get statsStream => _statsController.stream;
@@ -109,6 +121,7 @@ class WebSocketClient {
 
   Future<void> connect() async {
     if (_disposed) throw StateError('WebSocketClient has been disposed');
+    _intentionalDisconnect = false;
     _log('Attempting to connect to ${config.url}');
     try {
       await _adapter.connect();
@@ -125,6 +138,7 @@ class WebSocketClient {
   }
 
   Future<void> disconnect([int? code, String? reason]) async {
+    _intentionalDisconnect = true;
     _log('Disconnecting WebSocket');
     _heartbeatManager.stop();
     _reconnectionManager.stopReconnection();
@@ -155,6 +169,7 @@ class WebSocketClient {
     await _adapter.dispose();
     await _logController.close();
     await _statsController.close();
+    await _messageController.close();
   }
 
   // ─── Sending ───────────────────────────────────────────────────────────────
@@ -193,11 +208,11 @@ class WebSocketClient {
     final processed = await _interceptors.processSend(message);
     if (processed == null) return; // suppressed by interceptor
 
-    // 2. Send or queue
+    // 2. Send or queue (preserving useAck so drain respects it)
     if (isConnected) {
       await _sendToAdapter(processed, useAck: useAck);
     } else if (_messageQueue != null) {
-      if (!_messageQueue!.enqueue(processed)) {
+      if (!_messageQueue!.enqueue(processed, useAck: useAck)) {
         throw StateError(
             'Message queue is full (max ${config.maxQueueSize} messages)');
       }
@@ -217,15 +232,26 @@ class WebSocketClient {
   }
 
   void _drainQueue() {
+    _drainQueueAsync().catchError((_) {});
+  }
+
+  Future<void> _drainQueueAsync() async {
     final queue = _messageQueue;
     if (queue == null || queue.isEmpty) return;
 
-    final messages = queue.drain();
-    _log('Draining ${messages.length} queued message(s)');
-    for (final msg in messages) {
-      _sendToAdapter(msg, useAck: false).catchError((e) {
-        _log('Failed to send queued message: $e');
-      });
+    final items = queue.drain();
+    _log('Draining ${items.length} queued message(s)');
+    for (int i = 0; i < items.length; i++) {
+      try {
+        await _sendToAdapter(items[i].message, useAck: items[i].useAck);
+      } catch (e) {
+        _log('Failed to drain queue, requeuing remaining: $e');
+        // Requeue in original order (reverse insert from end to front).
+        for (int j = items.length - 1; j >= i; j--) {
+          queue.requeueFront(items[j]);
+        }
+        break;
+      }
     }
   }
 
@@ -248,8 +274,11 @@ class WebSocketClient {
       );
     }
 
-    _channelManager =
-        ChannelManager(rawSend: (data) => _adapter.send(data));
+    // Topic messages must go through the full outgoing pipeline (interceptors,
+    // queue, ACK) — not bypass directly to the adapter.
+    _channelManager = ChannelManager(
+      sendMessage: (msg) => _dispatch(msg, useAck: false),
+    );
   }
 
   void _initializeManagers() {
@@ -265,12 +294,24 @@ class WebSocketClient {
       log: _log,
     );
 
-    _heartbeatManager.setOnHeartbeatTimeout(() {
-      _log('Heartbeat timeout — initiating reconnection');
-      if (config.autoReconnect) {
-        _reconnectionManager.startReconnection();
-        _publishStats();
+    _heartbeatManager.setOnHeartbeatTimeout(() async {
+      _log('Heartbeat timeout — forcing reconnect');
+      if (!config.autoReconnect || _disposed) return;
+
+      // Force-close the dead socket first. Without this, connect() returns
+      // early when the local state is still "connected" even though the
+      // underlying TCP connection is gone.
+      _intentionalDisconnect = false; // allow reconnection from state listener
+      _heartbeatManager.stop();
+      try {
+        await _adapter.disconnect();
+      } catch (_) {
+        // Ignore close errors on an already-dead socket.
       }
+      // Explicitly kick reconnection in case the adapter was already in the
+      // disconnected state and the state listener did not fire.
+      _reconnectionManager.startReconnection();
+      _publishStats();
     });
 
     _heartbeatManager.setOnConnectionHealthy(() => _publishStats());
@@ -300,14 +341,16 @@ class WebSocketClient {
   }
 
   void _setupSubscriptions() {
-    _stateSubscription = stateStream.listen((state) {
+    _stateSubscription = _adapter.stateStream.listen((state) {
       _log('State changed to: ${state.description}');
 
       if (state == WebSocketState.connected) {
         if (config.enableHeartbeat) _heartbeatManager.start();
       } else if (state == WebSocketState.disconnected) {
         _heartbeatManager.stop();
-        if (config.autoReconnect && !_disposed) {
+        // Only auto-reconnect on unexpected disconnections; skip when the user
+        // called disconnect() or forceReconnect() deliberately.
+        if (!_intentionalDisconnect && config.autoReconnect && !_disposed) {
           _reconnectionManager.startReconnection();
         }
       } else if (state == WebSocketState.error) {
@@ -316,24 +359,29 @@ class WebSocketClient {
       _publishStats();
     });
 
-    _messageSubscription = messageStream.listen((message) async {
-      // ACK check (before interceptors — ACK frames are not user data)
+    _messageSubscription = _adapter.messageStream.listen((message) async {
+      // ACK frames are assumed to be uncompressed/unencrypted — check before
+      // running business interceptors.
       if (_ackManager != null && _ackManager!.handleIncomingMessage(message)) {
         return; // consumed as ACK
       }
 
-      // Interceptors (e.g., decompress)
+      // Business interceptors (e.g., decompress, decrypt, log).
       final processed = await _interceptors.processReceive(message);
-      if (processed == null) return; // suppressed
+      if (processed == null) return; // suppressed by interceptor
 
-      // Route to topic channel if applicable
-      _channelManager.route(processed);
-
-      // Heartbeat manager
+      // Heartbeat pong detection.
       _heartbeatManager.handleIncomingMessage(processed);
+
+      // Topic routing: if routed, the message is delivered to the topic stream.
+      // Non-topic messages are forwarded to the public messageStream.
+      final routed = _channelManager.route(processed);
+      if (!routed && !_messageController.isClosed) {
+        _messageController.add(processed);
+      }
     });
 
-    _errorSubscription = errorStream.listen((error) async {
+    _errorSubscription = _adapter.errorStream.listen((error) async {
       final processed = await _interceptors.processError(error);
       if (processed != null) {
         _log('WebSocket error: $processed');

@@ -1,6 +1,6 @@
 name: adapter_websocket
 description: "A Flutter WebSocket adapter with auto-reconnect, heartbeat, interceptors, ACK confirmation, message queuing, topic multiplexing, and connection pooling."
-version: 0.1.6
+version: 0.1.7
 homepage: https://github.com/Chihiro-bit/adapter_websocket.git
 repository: https://github.com/Chihiro-bit/adapter_websocket.git
 
@@ -47,16 +47,12 @@ flutter:
         pluginClass: AdapterWebsocketPlugin
       windows:
         pluginClass: AdapterWebsocketPluginCApi
-      web:
-        pluginClass: none
 
   # To add assets to your plugin package, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg
   #
-  assets:
-    - assets/ssl/test_cert.pem
   # For details regarding assets in packages, see
   # https://flutter.dev/to/asset-from-package
   #

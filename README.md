@@ -68,6 +68,18 @@ The demo covers WebSocket connection, real-time messaging, offline message queui
 
 > **Note:** `CompressionInterceptor` uses `dart:io` and is not available on Web.
 
+### Configuration availability by platform
+
+Some `WebSocketConfig` options rely on native APIs and are silently ignored on platforms that do not support them.
+
+| Option | Native (Android / iOS / macOS / Linux / Windows) | Web |
+|---|:---:|:---:|
+| `protocols` | ✅ | ✅ |
+| `headers` | ✅ | ❌ (browser restriction) |
+| `httpClient` | ✅ | ❌ |
+| `pingInterval` | ✅ | ❌ |
+| `CompressionInterceptor` | ✅ | ❌ |
+
 ---
 
 ## Installation
@@ -76,7 +88,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  adapter_websocket: ^0.1.3
+  adapter_websocket: ^0.1.6
 ```
 
 Then run:
@@ -195,7 +207,7 @@ await client.sendText('queued while offline');
 
 ### ACK Confirmation
 
-The client injects a unique `__ack_id__` into each message's metadata. The server must reply with `{"__ack__": "<id>"}` to confirm receipt. Unacknowledged messages are retried up to `maxAckRetries` times.
+The client injects a unique `__ack_id__` field directly into the JSON payload of each outgoing message so the server receives it on the wire. For non-Map payloads the data is wrapped as `{"__ack_id__": "…", "payload": …}`. The server must reply with `{"__ack__": "<id>"}` to confirm receipt. Unacknowledged messages are retried up to `maxAckRetries` times.
 
 ```dart
 final config = WebSocketConfig(
