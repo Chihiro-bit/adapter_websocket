@@ -1,3 +1,26 @@
+## 0.1.7
+
+### New Features
+
+- `WebSocketMessage` now has a `copyWith()` method for convenient object duplication.
+
+### Improvements
+
+- **ACK**: `AckManager.sendWithAck()` now embeds `__ack_id__` directly into the JSON payload so the server can echo it back without out-of-band framing.
+- **Message Queue**: Added `useAck` flag support; messages that were originally sent with ACK enabled are re-enqueued with the flag preserved and re-sent with ACK on reconnect.
+- **Channel Manager**: `ChannelManager` now passes a `WebSocketMessage` (instead of raw data) to the underlying send path, enabling full interceptor and ACK pipeline support for topic messages.
+- **Reconnection Manager**: Infinite-retry configuration (`maxReconnectAttempts = 0`) is now displayed correctly in connection stats.
+- **WebSocket Client**: Refactored the message stream processing pipeline for clearer separation between raw transport, interceptor chain, and topic dispatch.
+- **WebSocketConfig.copyWith()**: Supports explicit `null` clearing for optional fields (e.g. `httpClient`, `expectedPongMessagePattern`) so callers can reset a field without creating a whole new config.
+- **README**: Extended cross-platform availability table to document which configuration fields are supported on Web vs. native.
+
+### Build
+
+- Updated package version to `0.1.7`.
+- Removed resource files that are not supported on the Web platform from the asset bundle.
+
+---
+
 ## 0.1.6
 
 ### Bug Fixes
