@@ -15,11 +15,18 @@ class _PendingAck {
   Timer? _timer;
   final Completer<void> _completer = Completer<void>();
 
+  /// `true` after [AckManager.detachPendingForRequeue] paused this entry on a
+  /// disconnect, until it is re-sent (which re-arms its timeout timer).
+  bool detached = false;
+
   _PendingAck({required this.id, required this.message});
 
   Future<void> get future => _completer.future;
 
-  void scheduleTimeout(Duration duration, void Function(_PendingAck) onTimeout) {
+  void scheduleTimeout(
+    Duration duration,
+    void Function(_PendingAck) onTimeout,
+  ) {
     _timer?.cancel();
     _timer = Timer(duration, () => onTimeout(this));
   }
@@ -56,8 +63,8 @@ class AckManager {
     required this.maxRetries,
     required Future<void> Function(WebSocketMessage message) sender,
     required void Function(String) log,
-  })  : _sender = sender,
-        _log = log;
+  }) : _sender = sender,
+       _log = log;
 
   static String _generateId() {
     final ts = DateTime.now().millisecondsSinceEpoch;
@@ -75,13 +82,24 @@ class AckManager {
   Future<void> sendWithAck(WebSocketMessage message) {
     if (_disposed) return Future.error(StateError('AckManager disposed'));
 
+    // Re-send of an already-wrapped message (requeued after a disconnect):
+    // reuse the original id/pending so the original caller's future still
+    // completes, and so the retry budget survives the requeue.
+    final data = message.data;
+    if (data is Map<String, dynamic> && data[_kAckIdKey] is String) {
+      final existing = _pending[data[_kAckIdKey] as String];
+      if (existing != null) {
+        existing.detached = false;
+        return _resend(existing);
+      }
+    }
+
     final id = _generateId();
     final meta = Map<String, dynamic>.from(message.metadata ?? {});
     meta[_kAckIdKey] = id;
 
     // Embed __ack_id__ into the wire payload so the server receives it.
     final dynamic wireData;
-    final data = message.data;
     if (data is Map<String, dynamic>) {
       wireData = {...data, _kAckIdKey: id};
     } else {
@@ -98,14 +116,63 @@ class AckManager {
     final pending = _PendingAck(id: id, message: wrapped);
     _pending[id] = pending;
 
-    _sender(wrapped).then((_) {
-      pending.scheduleTimeout(timeout, _onTimeout);
-    }).catchError((e) {
-      _pending.remove(id);
-      pending.fail(e);
-    });
+    _sender(wrapped)
+        .then((_) {
+          pending.scheduleTimeout(timeout, _onTimeout);
+        })
+        .catchError((e) {
+          _pending.remove(id);
+          pending.fail(e);
+        });
 
     return pending.future;
+  }
+
+  /// Re-sends [pending.message] keeping its original id and retry budget.
+  Future<void> _resend(_PendingAck pending) {
+    if (_disposed) return Future.error(StateError('AckManager disposed'));
+    _sender(pending.message)
+        .then((_) {
+          pending.scheduleTimeout(timeout, _onTimeout);
+        })
+        .catchError((e) {
+          _pending.remove(pending.id);
+          pending.fail(e);
+        });
+    return pending.future;
+  }
+
+  /// Called on disconnect: pauses retry timers on all pending ACKs and
+  /// returns their wrapped messages so the caller can requeue them for
+  /// redelivery. The pending futures stay open until the requeued send is
+  /// acknowledged (or fails), so no message is silently lost.
+  ///
+  /// Idempotent: entries already detached are not returned again.
+  List<({String id, WebSocketMessage message})> detachPendingForRequeue() {
+    final result = <({String id, WebSocketMessage message})>[];
+    for (final p in _pending.values) {
+      if (p.detached) continue;
+      p.detached = true;
+      p._timer?.cancel();
+      p._timer = null;
+      result.add((id: p.id, message: p.message));
+    }
+    return result;
+  }
+
+  /// Fails a single pending ACK with [error] (used when it cannot be requeued).
+  void failPending(String id, Object error) {
+    final p = _pending.remove(id);
+    p?.fail(error);
+  }
+
+  /// Fails every pending ACK with [error] (e.g. intentional disconnect when
+  /// there is no message queue to requeue into).
+  void failAllPending(Object error) {
+    for (final p in _pending.values.toList()) {
+      p.fail(error);
+    }
+    _pending.clear();
   }
 
   /// Call with every incoming message. Returns `true` if the message was an ACK
@@ -113,14 +180,19 @@ class AckManager {
   bool handleIncomingMessage(WebSocketMessage message) {
     final data = message.data;
     if (data is! Map) return false;
+    // Any frame carrying the reserved __ack__ key is an ACK control frame and
+    // is consumed here — including late ACKs whose pending entry was already
+    // removed (e.g. after retries were exhausted).
+    if (!data.containsKey(_kAckResponseKey)) return false;
     final ackId = data[_kAckResponseKey];
-    if (ackId is! String) return false;
 
-    final pending = _pending.remove(ackId);
-    if (pending == null) return false;
-
-    _log('ACK received for $ackId');
-    pending.complete();
+    if (ackId is String) {
+      final pending = _pending.remove(ackId);
+      if (pending != null) {
+        _log('ACK received for $ackId');
+        pending.complete();
+      }
+    }
     return true;
   }
 
@@ -129,20 +201,26 @@ class AckManager {
 
     if (pending.retryCount < maxRetries) {
       pending.retryCount++;
-      _log('ACK timeout for ${pending.id} — retry ${pending.retryCount}/$maxRetries');
-      _sender(pending.message).then((_) {
-        pending.scheduleTimeout(timeout, _onTimeout);
-      }).catchError((e) {
-        _pending.remove(pending.id);
-        pending.fail(e);
-      });
+      _log(
+        'ACK timeout for ${pending.id} — retry ${pending.retryCount}/$maxRetries',
+      );
+      _sender(pending.message)
+          .then((_) {
+            pending.scheduleTimeout(timeout, _onTimeout);
+          })
+          .catchError((e) {
+            _pending.remove(pending.id);
+            pending.fail(e);
+          });
     } else {
       _log('ACK max retries exhausted for ${pending.id}');
       _pending.remove(pending.id);
-      pending.fail(TimeoutException(
-        'No ACK received for ${pending.id} after $maxRetries retries',
-        timeout,
-      ));
+      pending.fail(
+        TimeoutException(
+          'No ACK received for ${pending.id} after $maxRetries retries',
+          timeout,
+        ),
+      );
     }
   }
 
@@ -155,8 +233,8 @@ class AckManager {
   }
 
   Map<String, dynamic> getStats() => {
-        'pendingAcks': _pending.length,
-        'timeoutMs': timeout.inMilliseconds,
-        'maxRetries': maxRetries,
-      };
+    'pendingAcks': _pending.length,
+    'timeoutMs': timeout.inMilliseconds,
+    'maxRetries': maxRetries,
+  };
 }

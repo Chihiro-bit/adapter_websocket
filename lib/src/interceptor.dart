@@ -9,7 +9,8 @@ abstract class WebSocketInterceptor {
   Future<WebSocketMessage?> onSend(WebSocketMessage message) async => message;
 
   /// Called after a message is received. Return `null` to drop the message.
-  Future<WebSocketMessage?> onReceive(WebSocketMessage message) async => message;
+  Future<WebSocketMessage?> onReceive(WebSocketMessage message) async =>
+      message;
 
   /// Called when a connection error occurs. Return `null` to suppress the error.
   Future<dynamic> onError(dynamic error) async => error;
@@ -70,20 +71,22 @@ class LoggingInterceptor extends WebSocketInterceptor {
   final void Function(String message) _logger;
   final String tag;
 
-  LoggingInterceptor({
-    required void Function(String) logger,
-    this.tag = 'WS',
-  }) : _logger = logger;
+  LoggingInterceptor({required void Function(String) logger, this.tag = 'WS'})
+    : _logger = logger;
 
   @override
   Future<WebSocketMessage?> onSend(WebSocketMessage message) async {
-    _logger('[$tag][SEND] type=${message.type} data=${_truncate(message.data)}');
+    _logger(
+      '[$tag][SEND] type=${message.type} data=${_truncate(message.data)}',
+    );
     return message;
   }
 
   @override
   Future<WebSocketMessage?> onReceive(WebSocketMessage message) async {
-    _logger('[$tag][RECV] type=${message.type} data=${_truncate(message.data)}');
+    _logger(
+      '[$tag][RECV] type=${message.type} data=${_truncate(message.data)}',
+    );
     return message;
   }
 

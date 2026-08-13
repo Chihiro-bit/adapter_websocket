@@ -149,8 +149,7 @@ class WebSocketConfig {
           useExponentialBackoff ?? this.useExponentialBackoff,
       maxReconnectDelay: maxReconnectDelay ?? this.maxReconnectDelay,
       backoffMultiplier: backoffMultiplier ?? this.backoffMultiplier,
-      httpClient:
-          identical(httpClient, _unset) ? this.httpClient : httpClient,
+      httpClient: identical(httpClient, _unset) ? this.httpClient : httpClient,
       enableMessageQueue: enableMessageQueue ?? this.enableMessageQueue,
       maxQueueSize: maxQueueSize ?? this.maxQueueSize,
       messageQueueTimeout: identical(messageQueueTimeout, _unset)

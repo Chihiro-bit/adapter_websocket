@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:adapter_websocket/websocket_plugin.dart';
+import 'package:adapter_websocket/adapter_websocket.dart';
 import 'package:flutter/services.dart';
+
+import 'local_mock_websocket_adapter.dart';
 
 void main() => runApp(const MyApp());
 
@@ -52,6 +54,13 @@ class _WebSocketDemoPageState extends State<WebSocketDemoPage>
   final _urlCtrl = TextEditingController(text: 'ws://124.222.6.60:8800');
   final _msgCtrl = TextEditingController();
 
+  // Connection source: in-process mock server vs a real server.
+  // Defaults to the mock so the demo works offline out of the box on every
+  // platform (native: real local WebSocket server; web: in-memory link).
+  bool _mockMode = true;
+  LocalMockWebSocketAdapter? _mockAdapter;
+  bool _mockSimulateDisconnects = false;
+
   // General
   final List<String> _messages = [];
   final List<String> _logs = [];
@@ -92,31 +101,21 @@ class _WebSocketDemoPageState extends State<WebSocketDemoPage>
   Future<void> _initClient() async {
     await _client?.dispose();
 
-    final config = WebSocketConfig(
-      url: _urlCtrl.text,
-      autoReconnect: true,
-      maxReconnectAttempts: 5,
-      reconnectDelay: const Duration(seconds: 2),
-      useExponentialBackoff: true,
-      maxReconnectDelay: const Duration(minutes: 2),
-      enableLogging: true,
-      enableHeartbeat: true,
-      heartbeatInterval: const Duration(seconds: 15),
-      heartbeatTimeout: const Duration(seconds: 5),
-      heartbeatMessage: '{"type":"heartbeat"}',
-      expectedPongMessage: '{"type":"heartbeat_ack"}',
-      maxMissedHeartbeats: 3,
-      // Message queue
-      enableMessageQueue: _queueEnabled,
-      maxQueueSize: 50,
-      messageQueueTimeout: const Duration(minutes: 5),
-      // ACK
-      enableAck: _ackEnabled,
-      ackTimeout: const Duration(seconds: 15),
-      maxAckRetries: 2,
-    );
-
-    final adapter = WebSocketChannelAdapter(config);
+    final WebSocketAdapter adapter;
+    if (_mockMode) {
+      // In-process mock server: no network needed, auto-pong/ACK/topic
+      // replies plus periodic broadcasts and (optional) simulated drops.
+      final mock = await LocalMockWebSocketAdapter.create(
+        _buildConfig('ws://127.0.0.1:0/ws'),
+      );
+      mock.setSimulateDisconnects(_mockSimulateDisconnects);
+      _mockAdapter = mock;
+      _urlCtrl.text = mock.serverUrl; // display the real local URL
+      adapter = mock;
+    } else {
+      _mockAdapter = null;
+      adapter = WebSocketChannelAdapter(_buildConfig(_urlCtrl.text));
+    }
     _client = WebSocketClient(adapter);
 
     // Logging interceptor (Feature 6)
@@ -156,10 +155,46 @@ class _WebSocketDemoPageState extends State<WebSocketDemoPage>
     _client!.statsStream.listen((stats) {
       setState(() {
         _stats = stats;
-        _queuedCount =
-            (stats['messageQueue']?['queueLength'] as int?) ?? 0;
+        _queuedCount = (stats['messageQueue']?['queueLength'] as int?) ?? 0;
       });
     });
+  }
+
+  WebSocketConfig _buildConfig(String url) {
+    return WebSocketConfig(
+      url: url,
+      autoReconnect: true,
+      maxReconnectAttempts: 5,
+      reconnectDelay: const Duration(seconds: 2),
+      useExponentialBackoff: true,
+      maxReconnectDelay: const Duration(minutes: 2),
+      enableLogging: true,
+      enableHeartbeat: true,
+      heartbeatInterval: const Duration(seconds: 15),
+      heartbeatTimeout: const Duration(seconds: 5),
+      heartbeatMessage: '{"type":"heartbeat"}',
+      expectedPongMessage: '{"type":"heartbeat_ack"}',
+      maxMissedHeartbeats: 3,
+      // Message queue
+      enableMessageQueue: _queueEnabled,
+      maxQueueSize: 50,
+      messageQueueTimeout: const Duration(minutes: 5),
+      // ACK
+      enableAck: _ackEnabled,
+      ackTimeout: const Duration(seconds: 15),
+      maxAckRetries: 2,
+    );
+  }
+
+  void _toggleMockMode(bool value) {
+    if (value == _mockMode) return; // already on this source
+    setState(() => _mockMode = value);
+    _initClient();
+    _snack(
+      value
+          ? 'Switched to mock — local simulation, no network needed'
+          : 'Switched to real server — connecting to ${_urlCtrl.text}',
+    );
   }
 
   Future<void> _connect() async {
@@ -172,8 +207,7 @@ class _WebSocketDemoPageState extends State<WebSocketDemoPage>
 
   Future<void> _disconnect() => _client?.disconnect() ?? Future.value();
 
-  Future<void> _forceReconnect() =>
-      _client?.forceReconnect() ?? Future.value();
+  Future<void> _forceReconnect() => _client?.forceReconnect() ?? Future.value();
 
   Future<void> _sendMessage({bool useAck = false}) async {
     final text = _msgCtrl.text.trim();
@@ -199,8 +233,9 @@ class _WebSocketDemoPageState extends State<WebSocketDemoPage>
     if (topic.isEmpty || _client == null) return;
     _activeTopic = _client!.channel(topic);
     _activeTopic!.messageStream.listen((msg) {
-      setState(() =>
-          _topicMessages.add('[${msg.type}] ${jsonEncode(msg.data)}'));
+      setState(
+        () => _topicMessages.add('[${msg.type}] ${jsonEncode(msg.data)}'),
+      );
     });
     setState(() => _logs.add('Subscribed to topic: $topic'));
   }
@@ -210,7 +245,9 @@ class _WebSocketDemoPageState extends State<WebSocketDemoPage>
       _snack('Subscribe to a topic first');
       return;
     }
-    final event = _eventCtrl.text.trim().isEmpty ? 'msg' : _eventCtrl.text.trim();
+    final event = _eventCtrl.text.trim().isEmpty
+        ? 'msg'
+        : _eventCtrl.text.trim();
     final payload = {'text': _msgCtrl.text, 'user': 'demo'};
     try {
       await _activeTopic!.send(event, payload);
@@ -240,7 +277,9 @@ class _WebSocketDemoPageState extends State<WebSocketDemoPage>
       _snack('Init the pool first');
       return;
     }
-    await _pool!.broadcast(jsonEncode({'type': 'broadcast', 'content': 'pool hello'}));
+    await _pool!.broadcast(
+      jsonEncode({'type': 'broadcast', 'content': 'pool hello'}),
+    );
     setState(() => _poolStats = _pool!.getStats());
     _snack('Broadcast sent to ${_pool!.connectedCount} clients');
   }
@@ -266,8 +305,9 @@ class _WebSocketDemoPageState extends State<WebSocketDemoPage>
   }
 
   void _snack(String msg) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 2)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), duration: const Duration(seconds: 2)),
+    );
   }
 
   @override
@@ -323,66 +363,125 @@ class _WebSocketDemoPageState extends State<WebSocketDemoPage>
   Widget _buildConnectionTab(bool connected) {
     return Padding(
       padding: const EdgeInsets.all(12),
-      child: Column(children: [
-        TextField(
-          controller: _urlCtrl,
-          decoration: const InputDecoration(
-            labelText: 'WebSocket URL',
-            border: OutlineInputBorder(),
-            prefixIcon: Icon(Icons.link),
+      child: Column(
+        children: [
+          SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(
+                value: true,
+                label: Text('Mock (local)'),
+                icon: Icon(Icons.science),
+              ),
+              ButtonSegment(
+                value: false,
+                label: Text('Real server'),
+                icon: Icon(Icons.cloud),
+              ),
+            ],
+            selected: {_mockMode},
+            onSelectionChanged: (selection) => _toggleMockMode(selection.first),
           ),
-          onSubmitted: (_) => _initClient(),
-        ),
-        const SizedBox(height: 8),
-        Row(children: [
+          const SizedBox(height: 4),
+          Text(
+            _mockMode
+                ? 'In-process mock — heartbeat/ACK/topics are answered '
+                      'automatically, no network required'
+                : 'Connect to a real WebSocket server using the URL below',
+            style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _urlCtrl,
+            enabled: !_mockMode,
+            decoration: InputDecoration(
+              labelText: _mockMode
+                  ? 'WebSocket URL (managed by local mock)'
+                  : 'WebSocket URL',
+              border: const OutlineInputBorder(),
+              prefixIcon: Icon(_mockMode ? Icons.lock : Icons.link),
+            ),
+            onSubmitted: (_) => _initClient(),
+          ),
+          if (_mockMode) ...[
+            SwitchListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Simulate disconnects (every 12 s)'),
+              subtitle: const Text(
+                'Local server drops the connection to demo auto-reconnect',
+              ),
+              value: _mockSimulateDisconnects,
+              onChanged: (val) {
+                setState(() => _mockSimulateDisconnects = val);
+                _mockAdapter?.setSimulateDisconnects(val);
+              },
+            ),
+          ],
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: connected ? null : _connect,
+                  icon: const Icon(Icons.wifi),
+                  label: const Text('Connect'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton.tonal(
+                  onPressed: connected ? _disconnect : null,
+                  child: const Text('Disconnect'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _forceReconnect,
+                  child: const Text('Force Reconnect'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _StatCard(stats: _stats, queuedCount: _queuedCount),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _msgCtrl,
+            decoration: InputDecoration(
+              labelText: 'Message',
+              border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                icon: const Icon(Icons.send),
+                onPressed: _sendMessage,
+              ),
+            ),
+            onSubmitted: (_) => _sendMessage(),
+          ),
+          const SizedBox(height: 8),
           Expanded(
-            child: FilledButton.icon(
-              onPressed: connected ? null : _connect,
-              icon: const Icon(Icons.wifi),
-              label: const Text('Connect'),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _LogPane(
+                    title: 'Messages',
+                    items: _messages,
+                    onClear: () => setState(() => _messages.clear()),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _LogPane(
+                    title: 'Logs',
+                    items: _logs,
+                    onClear: () => setState(() => _logs.clear()),
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: FilledButton.tonal(
-              onPressed: connected ? _disconnect : null,
-              child: const Text('Disconnect'),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: OutlinedButton(
-              onPressed: _forceReconnect,
-              child: const Text('Force Reconnect'),
-            ),
-          ),
-        ]),
-        const SizedBox(height: 8),
-        _StatCard(stats: _stats, queuedCount: _queuedCount),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _msgCtrl,
-          decoration: InputDecoration(
-            labelText: 'Message',
-            border: const OutlineInputBorder(),
-            suffixIcon: IconButton(
-              icon: const Icon(Icons.send),
-              onPressed: _sendMessage,
-            ),
-          ),
-          onSubmitted: (_) => _sendMessage(),
-        ),
-        const SizedBox(height: 8),
-        Expanded(
-          child: Row(children: [
-            Expanded(child: _LogPane(title: 'Messages', items: _messages,
-                onClear: () => setState(() => _messages.clear()))),
-            const SizedBox(width: 8),
-            Expanded(child: _LogPane(title: 'Logs', items: _logs,
-                onClear: () => setState(() => _logs.clear()))),
-          ]),
-        ),
-      ]),
+        ],
+      ),
     );
   }
 
@@ -391,49 +490,62 @@ class _WebSocketDemoPageState extends State<WebSocketDemoPage>
   Widget _buildInterceptorTab() {
     return Padding(
       padding: const EdgeInsets.all(16),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Interceptors', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        const Text(
-          'Interceptors process every message before it is sent or after it is received.\n'
-          'They run in the order they were added. Returning null suppresses the message.',
-          style: TextStyle(color: Colors.grey),
-        ),
-        const Divider(height: 24),
-        SwitchListTile(
-          title: const Text('LoggingInterceptor'),
-          subtitle: const Text('Prints every sent/received message to the Logs panel'),
-          value: _loggingInterceptorEnabled,
-          onChanged: _toggleLoggingInterceptor,
-        ),
-        SwitchListTile(
-          title: const Text('CompressionInterceptor'),
-          subtitle: const Text('gzip-compresses messages > 256 bytes (native only)'),
-          value: _compressionEnabled,
-          onChanged: _toggleCompression,
-        ),
-        const Divider(height: 24),
-        const Text('Custom interceptor example:', style: TextStyle(fontWeight: FontWeight.bold)),
-        Container(
-          margin: const EdgeInsets.only(top: 8),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.grey[100],
-            borderRadius: BorderRadius.circular(8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Interceptors',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
-          child: const SelectableText(
-            'class AuthInterceptor extends WebSocketInterceptor {\n'
-            '  @override\n'
-            '  Future<WebSocketMessage?> onSend(WebSocketMessage msg) async {\n'
-            '    final meta = {...?msg.metadata, \'token\': myToken};\n'
-            '    return msg.copyWith(metadata: meta);\n'
-            '  }\n'
-            '}\n\n'
-            'client.addInterceptor(AuthInterceptor());',
-            style: TextStyle(fontFamily: 'monospace', fontSize: 12),
+          const SizedBox(height: 8),
+          const Text(
+            'Interceptors process every message before it is sent or after it is received.\n'
+            'They run in the order they were added. Returning null suppresses the message.',
+            style: TextStyle(color: Colors.grey),
           ),
-        ),
-      ]),
+          const Divider(height: 24),
+          SwitchListTile(
+            title: const Text('LoggingInterceptor'),
+            subtitle: const Text(
+              'Prints every sent/received message to the Logs panel',
+            ),
+            value: _loggingInterceptorEnabled,
+            onChanged: _toggleLoggingInterceptor,
+          ),
+          SwitchListTile(
+            title: const Text('CompressionInterceptor'),
+            subtitle: const Text(
+              'gzip-compresses messages > 256 bytes (native only)',
+            ),
+            value: _compressionEnabled,
+            onChanged: _toggleCompression,
+          ),
+          const Divider(height: 24),
+          const Text(
+            'Custom interceptor example:',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          Container(
+            margin: const EdgeInsets.only(top: 8),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const SelectableText(
+              'class AuthInterceptor extends WebSocketInterceptor {\n'
+              '  @override\n'
+              '  Future<WebSocketMessage?> onSend(WebSocketMessage msg) async {\n'
+              '    final meta = {...?msg.metadata, \'token\': myToken};\n'
+              '    return msg.copyWith(metadata: meta);\n'
+              '  }\n'
+              '}\n\n'
+              'client.addInterceptor(AuthInterceptor());',
+              style: TextStyle(fontFamily: 'monospace', fontSize: 12),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -442,49 +554,64 @@ class _WebSocketDemoPageState extends State<WebSocketDemoPage>
   Widget _buildQueueTab(bool connected) {
     return Padding(
       padding: const EdgeInsets.all(16),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Message Queue', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        const Text(
-          'When enabled, messages sent while offline are buffered and automatically '
-          'flushed when the connection is restored.',
-          style: TextStyle(color: Colors.grey),
-        ),
-        const Divider(height: 24),
-        SwitchListTile(
-          title: const Text('Enable message queue'),
-          subtitle: Text('maxQueueSize: 50 • timeout: 5 min • queued now: $_queuedCount'),
-          value: _queueEnabled,
-          onChanged: _toggleQueue,
-        ),
-        const SizedBox(height: 8),
-        Row(children: [
-          Expanded(
-            child: FilledButton.tonal(
-              onPressed: connected ? null : () async {
-                // Send while disconnected — message will be queued
-                await _client?.sendText('queued: ${DateTime.now()}');
-                setState(() {});
-              },
-              child: const Text('Send while offline (queue it)'),
-            ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Message Queue',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: FilledButton(
-              onPressed: connected ? null : _connect,
-              child: const Text('Reconnect (flush queue)'),
-            ),
+          const SizedBox(height: 8),
+          const Text(
+            'When enabled, messages sent while offline are buffered and automatically '
+            'flushed when the connection is restored.',
+            style: TextStyle(color: Colors.grey),
           ),
-        ]),
-        const SizedBox(height: 16),
-        _InfoCard(title: 'How it works', body:
-          '1. Call send() or sendMessage() while disconnected.\n'
-          '2. If enableMessageQueue is true, the message is buffered.\n'
-          '3. On the next successful connect() or reconnect, the queue\n'
-          '   is drained and all messages are sent in order.\n'
-          '4. Expired messages (past messageQueueTimeout) are discarded.'),
-      ]),
+          const Divider(height: 24),
+          SwitchListTile(
+            title: const Text('Enable message queue'),
+            subtitle: Text(
+              'maxQueueSize: 50 • timeout: 5 min • queued now: $_queuedCount',
+            ),
+            value: _queueEnabled,
+            onChanged: _toggleQueue,
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.tonal(
+                  onPressed: connected
+                      ? null
+                      : () async {
+                          // Send while disconnected — message will be queued
+                          await _client?.sendText('queued: ${DateTime.now()}');
+                          setState(() {});
+                        },
+                  child: const Text('Send while offline (queue it)'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton(
+                  onPressed: connected ? null : _connect,
+                  child: const Text('Reconnect (flush queue)'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _InfoCard(
+            title: 'How it works',
+            body:
+                '1. Call send() or sendMessage() while disconnected.\n'
+                '2. If enableMessageQueue is true, the message is buffered.\n'
+                '3. On the next successful connect() or reconnect, the queue\n'
+                '   is drained and all messages are sent in order.\n'
+                '4. Expired messages (past messageQueueTimeout) are discarded.',
+          ),
+        ],
+      ),
     );
   }
 
@@ -493,42 +620,52 @@ class _WebSocketDemoPageState extends State<WebSocketDemoPage>
   Widget _buildAckTab(bool connected) {
     return Padding(
       padding: const EdgeInsets.all(16),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('ACK Confirmation', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        const Text(
-          'ACK mode waits for the server to echo back {"__ack__": "<id>"}. '
-          'If no ACK arrives within ackTimeout, the message is retried up to maxAckRetries times.',
-          style: TextStyle(color: Colors.grey),
-        ),
-        const Divider(height: 24),
-        SwitchListTile(
-          title: const Text('Enable ACK'),
-          subtitle: const Text('ackTimeout: 15 s • maxAckRetries: 2'),
-          value: _ackEnabled,
-          onChanged: _toggleAck,
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _msgCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Message to send with ACK',
-            border: OutlineInputBorder(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'ACK Confirmation',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
-        ),
-        const SizedBox(height: 8),
-        FilledButton.icon(
-          onPressed: connected && _ackEnabled ? () => _sendMessage(useAck: true) : null,
-          icon: const Icon(Icons.verified),
-          label: const Text('Send with ACK'),
-        ),
-        const SizedBox(height: 16),
-        Expanded(child: _LogPane(
-          title: 'ACK Log',
-          items: _ackLog,
-          onClear: () => setState(() => _ackLog.clear()),
-        )),
-      ]),
+          const SizedBox(height: 8),
+          const Text(
+            'ACK mode waits for the server to echo back {"__ack__": "<id>"}. '
+            'If no ACK arrives within ackTimeout, the message is retried up to maxAckRetries times.',
+            style: TextStyle(color: Colors.grey),
+          ),
+          const Divider(height: 24),
+          SwitchListTile(
+            title: const Text('Enable ACK'),
+            subtitle: const Text('ackTimeout: 15 s • maxAckRetries: 2'),
+            value: _ackEnabled,
+            onChanged: _toggleAck,
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _msgCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Message to send with ACK',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 8),
+          FilledButton.icon(
+            onPressed: connected && _ackEnabled
+                ? () => _sendMessage(useAck: true)
+                : null,
+            icon: const Icon(Icons.verified),
+            label: const Text('Send with ACK'),
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: _LogPane(
+              title: 'ACK Log',
+              items: _ackLog,
+              onClear: () => setState(() => _ackLog.clear()),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -537,59 +674,77 @@ class _WebSocketDemoPageState extends State<WebSocketDemoPage>
   Widget _buildTopicsTab(bool connected) {
     return Padding(
       padding: const EdgeInsets.all(16),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Topic Channels', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        const Text(
-          'Multiplex logical channels over one WebSocket connection using a JSON '
-          'envelope: {"topic":"…","event":"…","payload":…}.',
-          style: TextStyle(color: Colors.grey),
-        ),
-        const Divider(height: 24),
-        Row(children: [
-          Expanded(child: TextField(
-            controller: _topicCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Topic name',
-              border: OutlineInputBorder(),
-            ),
-          )),
-          const SizedBox(width: 8),
-          FilledButton(
-            onPressed: connected ? _subscribeToTopic : null,
-            child: const Text('Subscribe'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Topic Channels',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
-        ]),
-        const SizedBox(height: 8),
-        Row(children: [
-          Expanded(child: TextField(
-            controller: _eventCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Event name',
-              border: OutlineInputBorder(),
-            ),
-          )),
-          const SizedBox(width: 8),
-          Expanded(child: TextField(
-            controller: _msgCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Payload',
-              border: OutlineInputBorder(),
-            ),
-          )),
-          const SizedBox(width: 8),
-          FilledButton.tonal(
-            onPressed: _activeTopic != null ? _sendToTopic : null,
-            child: const Text('Send'),
+          const SizedBox(height: 8),
+          const Text(
+            'Multiplex logical channels over one WebSocket connection using a JSON '
+            'envelope: {"topic":"…","event":"…","payload":…}.',
+            style: TextStyle(color: Colors.grey),
           ),
-        ]),
-        const SizedBox(height: 8),
-        Expanded(child: _LogPane(
-          title: 'Topic Messages (${_topicCtrl.text})',
-          items: _topicMessages,
-          onClear: () => setState(() => _topicMessages.clear()),
-        )),
-      ]),
+          const Divider(height: 24),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _topicCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Topic name',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: connected ? _subscribeToTopic : null,
+                child: const Text('Subscribe'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _eventCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Event name',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: _msgCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Payload',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.tonal(
+                onPressed: _activeTopic != null ? _sendToTopic : null,
+                child: const Text('Send'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: _LogPane(
+              title: 'Topic Messages (${_topicCtrl.text})',
+              items: _topicMessages,
+              onClear: () => setState(() => _topicMessages.clear()),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -598,51 +753,73 @@ class _WebSocketDemoPageState extends State<WebSocketDemoPage>
   Widget _buildPoolTab() {
     return Padding(
       padding: const EdgeInsets.all(16),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Connection Pool', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        const Text(
-          'Manage multiple WebSocket connections to distribute load. '
-          'Supports round-robin, random, and least-connections strategies.',
-          style: TextStyle(color: Colors.grey),
-        ),
-        const Divider(height: 24),
-        Row(children: [
-          Expanded(child: FilledButton.icon(
-            onPressed: _initPool,
-            icon: const Icon(Icons.lan),
-            label: const Text('Init Pool (2 clients, round-robin)'),
-          )),
-          const SizedBox(width: 8),
-          FilledButton.tonal(
-            onPressed: _pool != null ? _poolBroadcast : null,
-            child: const Text('Broadcast'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Connection Pool',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
-        ]),
-        const SizedBox(height: 16),
-        if (_poolStats.isNotEmpty) ...[
-          const Text('Pool Status', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          ...(_poolStats.asMap().entries.map((e) => Card(
-            child: ListTile(
-              leading: Icon(
-                e.value['isConnected'] == true ? Icons.wifi : Icons.wifi_off,
-                color: e.value['isConnected'] == true ? Colors.green : Colors.red,
+          const Text(
+            'Manage multiple WebSocket connections to distribute load. '
+            'Supports round-robin, random, and least-connections strategies.',
+            style: TextStyle(color: Colors.grey),
+          ),
+          const Divider(height: 24),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _initPool,
+                  icon: const Icon(Icons.lan),
+                  label: const Text('Init Pool (2 clients, round-robin)'),
+                ),
               ),
-              title: Text('Client ${e.key + 1}: ${e.value['url']}'),
-              subtitle: Text(
-                'State: ${e.value['state']}  •  Uses: ${e.value['useCount']}',
+              const SizedBox(width: 8),
+              FilledButton.tonal(
+                onPressed: _pool != null ? _poolBroadcast : null,
+                child: const Text('Broadcast'),
               ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (_poolStats.isNotEmpty) ...[
+            const Text(
+              'Pool Status',
+              style: TextStyle(fontWeight: FontWeight.bold),
             ),
-          ))),
-        ] else
-          _InfoCard(title: 'How it works', body:
-            '1. Create a WebSocketPool with a list of server URLs.\n'
-            '2. Call connectAll() to establish all connections.\n'
-            '3. Call acquire() to get the next client per strategy.\n'
-            '4. Call broadcast() to send to every connected client.\n'
-            '5. Call dispose() to clean up all connections.'),
-      ]),
+            const SizedBox(height: 8),
+            ...(_poolStats.asMap().entries.map(
+              (e) => Card(
+                child: ListTile(
+                  leading: Icon(
+                    e.value['isConnected'] == true
+                        ? Icons.wifi
+                        : Icons.wifi_off,
+                    color: e.value['isConnected'] == true
+                        ? Colors.green
+                        : Colors.red,
+                  ),
+                  title: Text('Client ${e.key + 1}: ${e.value['url']}'),
+                  subtitle: Text(
+                    'State: ${e.value['state']}  •  Uses: ${e.value['useCount']}',
+                  ),
+                ),
+              ),
+            )),
+          ] else
+            _InfoCard(
+              title: 'How it works',
+              body:
+                  '1. Create a WebSocketPool with a list of server URLs.\n'
+                  '2. Call connectAll() to establish all connections.\n'
+                  '3. Call acquire() to get the next client per strategy.\n'
+                  '4. Call broadcast() to send to every connected client.\n'
+                  '5. Call dispose() to clean up all connections.',
+            ),
+        ],
+      ),
     );
   }
 }
@@ -663,14 +840,17 @@ class _StatCard extends StatelessWidget {
     return Card(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Wrap(spacing: 24, children: [
-          _Stat('Heartbeat', hb['isActive'] == true ? 'active' : 'off'),
-          _Stat('Missed', '${hb['missedHeartbeats'] ?? 0}'),
-          _Stat('Reconnects', '${rc['reconnectAttempts'] ?? 0}'),
-          _Stat('Queue', '$queuedCount'),
-          _Stat('Pending ACK', '${ack['pendingAcks'] ?? 0}'),
-          _Stat('Interceptors', '${stats['interceptors'] ?? 0}'),
-        ]),
+        child: Wrap(
+          spacing: 24,
+          children: [
+            _Stat('Heartbeat', hb['isActive'] == true ? 'active' : 'off'),
+            _Stat('Missed', '${hb['missedHeartbeats'] ?? 0}'),
+            _Stat('Reconnects', '${rc['reconnectAttempts'] ?? 0}'),
+            _Stat('Queue', '$queuedCount'),
+            _Stat('Pending ACK', '${ack['pendingAcks'] ?? 0}'),
+            _Stat('Interceptors', '${stats['interceptors'] ?? 0}'),
+          ],
+        ),
       ),
     );
   }
@@ -682,49 +862,61 @@ class _Stat extends StatelessWidget {
   const _Stat(this.label, this.value);
   @override
   Widget build(BuildContext context) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-        ],
-      );
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Text(
+        value,
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+      ),
+      Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+    ],
+  );
 }
 
 class _LogPane extends StatelessWidget {
   final String title;
   final List<String> items;
   final VoidCallback onClear;
-  const _LogPane({required this.title, required this.items, required this.onClear});
+  const _LogPane({
+    required this.title,
+    required this.items,
+    required this.onClear,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: Column(children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-              TextButton(onPressed: onClear, child: const Text('Clear')),
-            ],
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                TextButton(onPressed: onClear, child: const Text('Clear')),
+              ],
+            ),
           ),
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: ListView.builder(
-            itemCount: items.length,
-            reverse: true,
-            itemBuilder: (_, i) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              child: Text(
-                items[items.length - 1 - i],
-                style: const TextStyle(fontSize: 11),
+          const Divider(height: 1),
+          Expanded(
+            child: ListView.builder(
+              itemCount: items.length,
+              reverse: true,
+              itemBuilder: (_, i) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                child: Text(
+                  items[items.length - 1 - i],
+                  style: const TextStyle(fontSize: 11),
+                ),
               ),
             ),
           ),
-        ),
-      ]),
+        ],
+      ),
     );
   }
 }
@@ -735,14 +927,17 @@ class _InfoCard extends StatelessWidget {
   const _InfoCard({required this.title, required this.body});
   @override
   Widget build(BuildContext context) => Card(
-        color: Colors.blue[50],
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            Text(body, style: const TextStyle(fontSize: 13, height: 1.6)),
-          ]),
-        ),
-      );
+    color: Colors.blue[50],
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Text(body, style: const TextStyle(fontSize: 13, height: 1.6)),
+        ],
+      ),
+    ),
+  );
 }

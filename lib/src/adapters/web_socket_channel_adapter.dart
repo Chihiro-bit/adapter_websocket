@@ -5,8 +5,7 @@ import '../websocket_adapter.dart';
 import '../websocket_config.dart';
 import '../websocket_message.dart';
 import '../websocket_state.dart';
-import '_ws_connect_stub.dart'
-    if (dart.library.io) '_ws_connect_io.dart';
+import '_ws_connect_stub.dart' if (dart.library.io) '_ws_connect_io.dart';
 
 /// WebSocket adapter implementation using the web_socket_channel package
 class WebSocketChannelAdapter implements WebSocketAdapter {
@@ -23,6 +22,18 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
   WebSocketState _currentState = WebSocketState.disconnected;
   StreamSubscription? _channelSubscription;
   Timer? _connectionTimeoutTimer;
+
+  /// Incremented on every [connect] attempt (and when an attempt times out).
+  /// Callbacks from an earlier generation are ignored so a stale connection
+  /// can never overwrite the state of a newer one.
+  int _connectGeneration = 0;
+
+  /// Whether the current attempt's handshake has completed successfully.
+  /// Used to distinguish a failed handshake (→ error state) from a clean
+  /// close after a successful connection (→ disconnected state).
+  bool _handshakeCompleted = false;
+
+  bool _disposed = false;
 
   WebSocketChannelAdapter(this._config);
 
@@ -48,39 +59,91 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
       return;
     }
 
+    // Invalidate any in-flight attempt from a previous connect().
+    _connectGeneration++;
+    final generation = _connectGeneration;
+    _handshakeCompleted = false;
+
     _updateState(WebSocketState.connecting);
 
-    try {
-      final uri = Uri.parse(_config.url);
+    final channel = connectChannel(Uri.parse(_config.url), _config);
+    _channel = channel;
 
-      // Set up connection timeout
-      _connectionTimeoutTimer = Timer(_config.connectionTimeout, () {
-        if (_currentState == WebSocketState.connecting) {
-          _handleError(
-            TimeoutException('Connection timeout', _config.connectionTimeout),
-          );
-        }
-      });
+    // Drives the result of this connect() so a timeout can terminate the
+    // Future even when `ready` itself never completes (e.g. on web where the
+    // browser handshake can stall).
+    final completer = Completer<void>();
 
-      _channel = connectChannel(uri, _config);
-
-      // Listen to the channel stream
-      _channelSubscription = _channel!.stream.listen(
-        _handleMessage,
-        onError: _handleError,
-        onDone: _handleDone,
+    final timeoutTimer = Timer(_config.connectionTimeout, () {
+      if (_disposed || generation != _connectGeneration) return;
+      if (_currentState != WebSocketState.connecting) return;
+      // This attempt is dead: invalidate its callbacks, terminate the hung
+      // handshake, and report the failure exactly once.
+      _connectGeneration++;
+      _connectionTimeoutTimer = null;
+      try {
+        _channelSubscription?.cancel();
+      } catch (_) {}
+      try {
+        channel.sink.close();
+      } catch (_) {}
+      final error = TimeoutException(
+        'Connection timeout',
+        _config.connectionTimeout,
       );
-
-      // Wait for connection to be established
-      await _channel!.ready;
-      _connectionTimeoutTimer?.cancel();
-      _updateState(WebSocketState.connected);
-    } catch (error) {
-      _connectionTimeoutTimer?.cancel();
+      if (!completer.isCompleted) completer.completeError(error);
       _updateState(WebSocketState.error);
-      _errorController.add(error);
-      rethrow;
-    }
+      _emitError(error);
+    });
+    _connectionTimeoutTimer = timeoutTimer;
+
+    // Close any subscription from a previous attempt before overwriting it,
+    // so an old channel can never inject messages into the new one.
+    await _channelSubscription?.cancel();
+    _channelSubscription = channel.stream.listen(
+      (data) {
+        if (!_disposed && generation == _connectGeneration) {
+          _handleMessage(data);
+        }
+      },
+      onError: (error) {
+        if (!_disposed && generation == _connectGeneration) {
+          _handleError(error);
+        }
+      },
+      onDone: () {
+        if (!_disposed && generation == _connectGeneration) {
+          _handleDone();
+        }
+      },
+    );
+
+    channel.ready
+        .then((_) {
+          if (_disposed || generation != _connectGeneration) return;
+          timeoutTimer.cancel();
+          _connectionTimeoutTimer = null;
+          if (!completer.isCompleted) completer.complete();
+          // Only report success if nothing (e.g. disconnect()) superseded us.
+          if (_currentState == WebSocketState.connecting) {
+            _handshakeCompleted = true;
+            _updateState(WebSocketState.connected);
+          }
+        })
+        .catchError((Object error, StackTrace stackTrace) {
+          if (_disposed || generation != _connectGeneration) return;
+          timeoutTimer.cancel();
+          _connectionTimeoutTimer = null;
+          if (!completer.isCompleted) {
+            completer.completeError(error, stackTrace);
+          }
+          if (_currentState == WebSocketState.connecting) {
+            _updateState(WebSocketState.error);
+            _emitError(error);
+          }
+        });
+
+    return completer.future;
   }
 
   @override
@@ -139,9 +202,12 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
 
   @override
   Future<void> dispose() async {
+    _disposed = true;
     _connectionTimeoutTimer?.cancel();
     await _channelSubscription?.cancel();
-    await _channel?.sink.close();
+    try {
+      await _channel?.sink.close();
+    } catch (_) {}
 
     await _stateController.close();
     await _messageController.close();
@@ -186,15 +252,35 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
   void _handleError(dynamic error) {
     _connectionTimeoutTimer?.cancel();
     _updateState(WebSocketState.error);
-    _errorController.add(error);
+    _emitError(error);
   }
 
   void _handleDone() {
     _connectionTimeoutTimer?.cancel();
-    _updateState(WebSocketState.disconnected);
+    if (_currentState == WebSocketState.connecting) {
+      // The stream closed before the handshake completed: the connect
+      // attempt failed, so surface it as an error rather than a clean
+      // disconnect.
+      _updateState(WebSocketState.error);
+      _emitError(StateError('WebSocket connection closed during handshake'));
+    } else if (_currentState == WebSocketState.error && !_handshakeCompleted) {
+      // The handshake failure was already reported (by the ready error or
+      // the branch above) — keep the error state.
+    } else {
+      // Clean close after a successful connection (or after a mid-operation
+      // error, where the client relies on `disconnected` to reconnect).
+      _updateState(WebSocketState.disconnected);
+    }
+  }
+
+  void _emitError(dynamic error) {
+    if (!_disposed && !_errorController.isClosed) {
+      _errorController.add(error);
+    }
   }
 
   void _updateState(WebSocketState newState) {
+    if (_disposed) return;
     if (_currentState != newState) {
       _currentState = newState;
       _stateController.add(newState);
@@ -203,8 +289,14 @@ class WebSocketChannelAdapter implements WebSocketAdapter {
 
   /// Checks if a message is a heartbeat message
   bool _isHeartbeatMessage(String message) {
-    if (_config.expectedPongMessage == null && _config.expectedPongMessagePattern == null) return false;
-    if (_config.expectedPongMessage != null && message == _config.expectedPongMessage) return true;
+    if (_config.expectedPongMessage == null &&
+        _config.expectedPongMessagePattern == null) {
+      return false;
+    }
+    if (_config.expectedPongMessage != null &&
+        message == _config.expectedPongMessage) {
+      return true;
+    }
     return _config.expectedPongMessagePattern?.hasMatch(message) ?? false;
   }
 

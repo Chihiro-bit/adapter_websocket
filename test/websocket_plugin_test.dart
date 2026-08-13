@@ -1,16 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:adapter_websocket/websocket_plugin.dart';
+import 'package:adapter_websocket/adapter_websocket.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'dart:typed_data';
-import 'package:flutter/services.dart' show rootBundle;
 
-Future<HttpClient> createPinnedHttpClient({required String assetPath}) async {
-  // Load the PEM from assets
-  final ByteData certData = await rootBundle.load(assetPath);
-  final Uint8List certBytes = certData.buffer.asUint8List();
+Future<HttpClient> createPinnedHttpClient({required String certPath}) async {
+  final certBytes = await File(certPath).readAsBytes();
 
-  // Set up a SecurityContext with just that one cert
   final SecurityContext securityContext = SecurityContext(
     withTrustedRoots: false,
   );
@@ -18,10 +13,8 @@ Future<HttpClient> createPinnedHttpClient({required String assetPath}) async {
 
   final HttpClient client = HttpClient(context: securityContext);
 
-  // Optional: you can do additional runtime checks here if you like:
   client.badCertificateCallback =
       (X509Certificate cert, String host, int port) {
-        // Return true only if this exact PEM matches
         final String incomingPem = cert.pem;
         final String pinnedPem = utf8.decode(certBytes);
         return incomingPem == pinnedPem;
@@ -35,10 +28,9 @@ void main() {
     late MockWebSocketAdapter mockAdapter;
     late WebSocketClient client;
     late WebSocketConfig config;
-    TestWidgetsFlutterBinding.ensureInitialized();
     setUp(() async {
       final httpClient = await createPinnedHttpClient(
-        assetPath: 'assets/ssl/test_cert.pem',
+        certPath: 'assets/ssl/test_cert.pem',
       );
 
       config = WebSocketConfig(
@@ -191,27 +183,37 @@ void main() {
     test('should handle exponential backoff in reconnection', () async {
       mockAdapter.setShouldFailConnection(true);
 
-      final reconnectionDelays = <int>[];
-      client.statsStream.listen((stats) {
-        final currentDelay = stats['reconnection']['currentDelay'] as int?;
-        if (currentDelay != null &&
-            !reconnectionDelays.contains(currentDelay)) {
-          reconnectionDelays.add(currentDelay);
+      // Use a fast reconnect delay so the backoff cycle actually progresses
+      // within the test window (the default 5s delay would never fire here,
+      // making the old assertion rely on jitter luck).
+      final backoffAdapter = MockWebSocketAdapter(
+        config.copyWith(reconnectDelay: const Duration(milliseconds: 50)),
+      );
+      final backoffClient = WebSocketClient(backoffAdapter);
+      addTearDown(backoffClient.dispose);
+      backoffAdapter.setShouldFailConnection(true);
+
+      final observedAttempts = <int>[];
+      backoffClient.statsStream.listen((stats) {
+        final attempts = stats['reconnection']['reconnectAttempts'] as int;
+        if (attempts > 0 && !observedAttempts.contains(attempts)) {
+          observedAttempts.add(attempts);
         }
       });
 
       // Attempt multiple failed connections
       for (int i = 0; i < 3; i++) {
         try {
-          await client.connect();
+          await backoffClient.connect();
         } catch (_) {
           // Expected to fail
         }
         await Future.delayed(Duration(milliseconds: 200));
       }
 
-      // Should have different delays due to exponential backoff
-      expect(reconnectionDelays.length, greaterThan(1));
+      // Exponential backoff must have progressed through multiple attempts
+      // (each scheduled with a larger delay than the previous).
+      expect(observedAttempts.length, greaterThan(1));
     });
   });
 

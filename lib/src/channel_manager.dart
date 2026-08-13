@@ -19,7 +19,7 @@ class ChannelManager {
   static const _kPayload = 'payload';
 
   ChannelManager({required Future<void> Function(WebSocketMessage) sendMessage})
-      : _sendMessage = sendMessage;
+    : _sendMessage = sendMessage;
 
   /// Returns (creating if necessary) the [WebSocketTopic] for [topic].
   WebSocketTopic channel(String topic) {
@@ -33,7 +33,10 @@ class ChannelManager {
   }
 
   Future<void> _sendEnvelope(
-      String topic, String event, dynamic payload) async {
+    String topic,
+    String event,
+    dynamic payload,
+  ) async {
     final message = WebSocketMessage.json({
       _kTopic: topic,
       _kEvent: event,
@@ -61,21 +64,26 @@ class ChannelManager {
     }
 
     if (envelope == null) return false;
-    final topicName = envelope[_kTopic] as String?;
-    if (topicName == null) return false;
+    // The envelope keys come from the server and may hold any type — never
+    // hardcast them (a TypeError here would kill the receive pipeline).
+    final topicName = envelope[_kTopic];
+    if (topicName is! String) return false;
 
     final topic = _topics[topicName];
     if (topic == null) return false;
 
-    final event = envelope[_kEvent] as String? ?? 'message';
+    final eventValue = envelope[_kEvent];
+    final event = eventValue is String ? eventValue : 'message';
     final payload = envelope[_kPayload];
 
-    topic.push(WebSocketMessage(
-      data: payload,
-      timestamp: DateTime.now(),
-      type: event,
-      metadata: {_kTopic: topicName, _kEvent: event},
-    ));
+    topic.push(
+      WebSocketMessage(
+        data: payload,
+        timestamp: DateTime.now(),
+        type: event,
+        metadata: {_kTopic: topicName, _kEvent: event},
+      ),
+    );
     return true;
   }
 
@@ -87,7 +95,7 @@ class ChannelManager {
   }
 
   Map<String, dynamic> getStats() => {
-        'activeTopics': _topics.length,
-        'topics': _topics.keys.toList(),
-      };
+    'activeTopics': _topics.length,
+    'topics': _topics.keys.toList(),
+  };
 }

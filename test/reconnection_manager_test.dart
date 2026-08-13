@@ -1,5 +1,5 @@
 import 'package:adapter_websocket/src/reconnection_manager.dart';
-import 'package:adapter_websocket/websocket_plugin.dart';
+import 'package:adapter_websocket/adapter_websocket.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -43,8 +43,6 @@ void main() {
       reconnectionManager.dispose();
     });
 
-
-
     test('should attempt reconnection with exponential backoff', () async {
       bool attemptCalled = false;
       reconnectionManager.setOnReconnectAttempt(() {
@@ -53,13 +51,16 @@ void main() {
 
       shouldFailReconnect = true;
       reconnectionManager.startReconnection();
-      
+
       // Wait for first attempt
       await Future.delayed(Duration(milliseconds: 200));
-      
+
       expect(attemptCalled, isTrue);
       expect(reconnectCallCount, greaterThan(0));
-      expect(logs.any((log) => log.contains('Scheduling reconnection attempt')), isTrue);
+      expect(
+        logs.any((log) => log.contains('Scheduling reconnection attempt')),
+        isTrue,
+      );
     });
 
     test('should succeed on successful reconnection', () async {
@@ -69,13 +70,16 @@ void main() {
       });
 
       reconnectionManager.startReconnection();
-      
+
       // Wait for reconnection attempt
       await Future.delayed(Duration(milliseconds: 200));
-      
+
       expect(successCalled, isTrue);
       expect(reconnectCallCount, equals(1));
-      expect(logs.any((log) => log.contains('Reconnection successful')), isTrue);
+      expect(
+        logs.any((log) => log.contains('Reconnection successful')),
+        isTrue,
+      );
     });
 
     test('should stop after max attempts reached', () async {
@@ -92,35 +96,44 @@ void main() {
       await Future.delayed(Duration(milliseconds: 900));
 
       expect(maxAttemptsCalled, isTrue);
-      expect(logs.any((log) => log.contains('Maximum reconnection attempts')), isTrue);
+      expect(
+        logs.any((log) => log.contains('Maximum reconnection attempts')),
+        isTrue,
+      );
     });
 
     test('should reset state on successful connection', () {
       shouldFailReconnect = true;
       reconnectionManager.startReconnection();
-      
-      expect(reconnectionManager.getStats()['reconnectAttempts'], greaterThan(0));
-      
+
+      expect(
+        reconnectionManager.getStats()['reconnectAttempts'],
+        greaterThan(0),
+      );
+
       reconnectionManager.reset();
-      
+
       expect(reconnectionManager.getStats()['reconnectAttempts'], equals(0));
       expect(reconnectionManager.getStats()['isReconnecting'], isFalse);
     });
 
     test('should provide accurate statistics', () {
       reconnectionManager.startReconnection();
-      
+
       final stats = reconnectionManager.getStats();
-      
+
       expect(stats['isReconnecting'], isA<bool>());
       expect(stats['reconnectAttempts'], isA<int>());
-      expect(stats['maxReconnectAttempts'], equals(config.maxReconnectAttempts));
+      expect(
+        stats['maxReconnectAttempts'],
+        equals(config.maxReconnectAttempts),
+      );
       expect(stats['currentDelay'], isA<int>());
     });
 
     test('should calculate exponential backoff correctly', () async {
       shouldFailReconnect = true;
-      
+
       final delays = <int>[];
       reconnectionManager.setOnReconnectAttempt(() {
         final stats = reconnectionManager.getStats();

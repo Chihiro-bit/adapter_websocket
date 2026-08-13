@@ -31,10 +31,7 @@ class MessageQueue {
 
   final Queue<QueuedMessage> _queue = Queue();
 
-  MessageQueue({
-    this.maxSize = 100,
-    this.messageTimeout,
-  });
+  MessageQueue({this.maxSize = 100, this.messageTimeout});
 
   int get length => _queue.length;
   bool get isEmpty => _queue.isEmpty;
@@ -46,12 +43,14 @@ class MessageQueue {
   /// Adds [message] to the queue. Returns `false` if the queue is full.
   bool enqueue(WebSocketMessage message, {bool useAck = false}) {
     if (isFull) return false;
-    _queue.add(QueuedMessage(
-      message: message,
-      enqueuedAt: DateTime.now(),
-      timeout: messageTimeout,
-      useAck: useAck,
-    ));
+    _queue.add(
+      QueuedMessage(
+        message: message,
+        enqueuedAt: DateTime.now(),
+        timeout: messageTimeout,
+        useAck: useAck,
+      ),
+    );
     return true;
   }
 
@@ -78,9 +77,9 @@ class MessageQueue {
   void clear() => _queue.clear();
 
   Map<String, dynamic> getStats() => {
-        'queueLength': _queue.length,
-        'maxSize': maxSize,
-        'isFull': isFull,
-        'timeoutMs': messageTimeout?.inMilliseconds,
-      };
+    'queueLength': _queue.length,
+    'maxSize': maxSize,
+    'isFull': isFull,
+    'timeoutMs': messageTimeout?.inMilliseconds,
+  };
 }

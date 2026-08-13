@@ -31,9 +31,9 @@ class HeartbeatManager {
     required WebSocketConfig config,
     required HeartbeatSender sendMessage,
     required void Function(String) log,
-  })  : _config = config,
-        _sendMessage = sendMessage,
-        _log = log;
+  }) : _config = config,
+       _sendMessage = sendMessage,
+       _log = log;
 
   /// Sets callback for heartbeat timeout events
   void setOnHeartbeatTimeout(HeartbeatCallback callback) {
@@ -60,7 +60,7 @@ class HeartbeatManager {
     _missedHeartbeats = 0;
     _waitingForPong = false;
     _log('Starting heartbeat with interval: ${_config.heartbeatInterval}');
-    
+
     _scheduleNextHeartbeat();
   }
 
@@ -72,12 +72,13 @@ class HeartbeatManager {
 
     _isActive = false;
     _log('Stopping heartbeat');
-    
+
     _heartbeatTimer?.cancel();
     _heartbeatTimeoutTimer?.cancel();
     _heartbeatTimer = null;
     _heartbeatTimeoutTimer = null;
     _waitingForPong = false;
+    _missedHeartbeats = 0;
   }
 
   /// Handles incoming pong messages
@@ -87,7 +88,7 @@ class HeartbeatManager {
     }
 
     _lastPongReceived = DateTime.now();
-    
+
     // Check if this is the expected pong response
     bool isExpectedPong = true;
     if (_config.expectedPongMessage != null) {
@@ -98,10 +99,10 @@ class HeartbeatManager {
       _waitingForPong = false;
       _missedHeartbeats = 0;
       _heartbeatTimeoutTimer?.cancel();
-      
+
       _log('Received pong response - connection healthy');
       _onConnectionHealthy?.call();
-      
+
       // Schedule next heartbeat
       _scheduleNextHeartbeat();
     } else if (!isExpectedPong) {
@@ -118,15 +119,20 @@ class HeartbeatManager {
     // Any incoming message indicates the connection is alive
     if (_waitingForPong) {
       final dataStr = message.data.toString();
-      final matchesExact = _config.expectedPongMessage != null && message.data == _config.expectedPongMessage;
-      final matchesPattern = _config.expectedPongMessagePattern?.hasMatch(dataStr) ?? false;
-      final fallback = _config.expectedPongMessage == null && _config.expectedPongMessagePattern == null
-          && dataStr.toLowerCase().contains('pong');
+      final matchesExact =
+          _config.expectedPongMessage != null &&
+          message.data == _config.expectedPongMessage;
+      final matchesPattern =
+          _config.expectedPongMessagePattern?.hasMatch(dataStr) ?? false;
+      final fallback =
+          _config.expectedPongMessage == null &&
+          _config.expectedPongMessagePattern == null &&
+          dataStr.toLowerCase().contains('pong');
       if (matchesExact || matchesPattern || fallback) {
         handlePong(dataStr);
       }
     }
-    
+
     // Reset missed heartbeats on any activity
     if (_missedHeartbeats > 0) {
       _log('Received message - resetting missed heartbeat count');
@@ -167,10 +173,14 @@ class HeartbeatManager {
     try {
       _lastHeartbeatSent = DateTime.now();
       await _sendMessage(_config.heartbeatMessage);
+      // stop()/dispose() may have happened while the send was in flight —
+      // do not re-arm any timers in that case.
+      if (!_isActive) return;
       _log('Sent heartbeat: ${_config.heartbeatMessage}');
-      
+
       // Start timeout timer if expecting a pong response
-      if (_config.expectedPongMessage != null || _config.expectedPongMessagePattern != null) {
+      if (_config.expectedPongMessage != null ||
+          _config.expectedPongMessagePattern != null) {
         _waitingForPong = true;
         _startHeartbeatTimeout();
       } else {
@@ -178,6 +188,7 @@ class HeartbeatManager {
         _scheduleNextHeartbeat();
       }
     } catch (error) {
+      if (!_isActive) return;
       _log('Failed to send heartbeat: $error');
       _handleHeartbeatFailure();
     }
@@ -186,20 +197,28 @@ class HeartbeatManager {
   /// Starts the heartbeat timeout timer
   void _startHeartbeatTimeout() {
     _heartbeatTimeoutTimer?.cancel();
-    _heartbeatTimeoutTimer = Timer(_config.heartbeatTimeout, _handleHeartbeatTimeout);
+    _heartbeatTimeoutTimer = Timer(
+      _config.heartbeatTimeout,
+      _handleHeartbeatTimeout,
+    );
   }
 
   /// Handles heartbeat timeout
   void _handleHeartbeatTimeout() {
     _missedHeartbeats++;
     _waitingForPong = false;
-    
-    _log('Heartbeat timeout - missed heartbeats: $_missedHeartbeats/${_config.maxMissedHeartbeats}');
-    
+
+    _log(
+      'Heartbeat timeout - missed heartbeats: $_missedHeartbeats/${_config.maxMissedHeartbeats}',
+    );
+
     if (_missedHeartbeats >= _config.maxMissedHeartbeats) {
       _log('Maximum missed heartbeats reached - connection considered dead');
       _onConnectionUnhealthy?.call();
       _onHeartbeatTimeout?.call();
+      // Deactivate so the mechanism can be restarted by a later start()
+      // (e.g. after a successful reconnection) instead of dying silently.
+      stop();
     } else {
       _onConnectionUnhealthy?.call();
       // Try again
@@ -211,7 +230,7 @@ class HeartbeatManager {
   void _handleHeartbeatFailure() {
     _missedHeartbeats++;
     _waitingForPong = false;
-    
+
     if (_missedHeartbeats >= _config.maxMissedHeartbeats) {
       _log('Maximum heartbeat failures reached');
       _onHeartbeatTimeout?.call();

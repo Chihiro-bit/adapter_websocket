@@ -28,26 +28,17 @@ class WebSocketMessage {
 
   /// Creates a text message
   factory WebSocketMessage.text(String text) {
-    return WebSocketMessage.now(
-      data: text,
-      type: 'text',
-    );
+    return WebSocketMessage.now(data: text, type: 'text');
   }
 
   /// Creates a JSON message
   factory WebSocketMessage.json(Map<String, dynamic> json) {
-    return WebSocketMessage.now(
-      data: json,
-      type: 'json',
-    );
+    return WebSocketMessage.now(data: json, type: 'json');
   }
 
   /// Creates a binary message
   factory WebSocketMessage.binary(List<int> bytes) {
-    return WebSocketMessage.now(
-      data: bytes,
-      type: 'binary',
-    );
+    return WebSocketMessage.now(data: bytes, type: 'binary');
   }
 
   WebSocketMessage copyWith({

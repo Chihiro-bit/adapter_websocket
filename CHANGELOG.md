@@ -1,3 +1,33 @@
+## 0.1.8
+
+### Bug Fixes
+
+- **Connection**: Fixed a race in `WebSocketChannelAdapter.connect()` where a stale connection's callbacks could overwrite the state of a newer one, subscriptions leaked across reconnects, and a stalled handshake could leave `connect()` hanging forever (connection generation counting + timeout now terminates the pending future).
+- **ACK**: Fixed `__ack__`-pending messages being silently lost on disconnect — pending ACKs are now requeued for redelivery and late ACK frames are consumed instead of leaking into the message stream.
+- **ACK / Queue**: Draining the message queue no longer blocks behind one unacknowledged ACK message (previously up to `ackTimeout × maxAckRetries`), and failed sends while connected now fall back to the queue instead of being lost.
+- **Heartbeat**: Fixed a race where `stop()` during an in-flight heartbeat send could re-arm a zombie timeout timer and trigger auto-reconnect after an intentional disconnect.
+- **Heartbeat**: The mechanism now deactivates cleanly after `maxMissedHeartbeats` (stats no longer report a dead heartbeat as active) and can be restarted after reconnection.
+- **Reconnection**: Fixed disconnections that occurred while a reconnect attempt was in flight being swallowed, which could leave the client permanently offline; superseded attempts can no longer report success or cancel a newer cycle. Also fixed an exponent overflow crash in exponential backoff with unlimited retries.
+- **Topics**: `ChannelManager.route()` no longer throws on malformed envelopes from the server (non-string `topic`/`event` values are now guarded instead of hardcast).
+- **Interceptors**: The public `errorStream` now forwards errors through the error interceptor chain — returning `null` from `onError` actually suppresses the error, matching `onSend`/`onReceive` semantics.
+- Added `WebSocketClient.isReconnecting` to distinguish "disconnected" from "automatically reconnecting".
+
+### Improvements
+
+- Restored the **web** platform declaration in `pubspec.yaml` (a Dart-only registrant via `dartPluginClass`) so pub.dev correctly shows web support — it had been dropped accidentally in 0.1.7.
+- Added a canonical entry point at `package:adapter_websocket/adapter_websocket.dart`; the old `websocket_plugin.dart` import remains as a backwards-compatible alias.
+
+### Example
+
+- Added a self-driving in-process mock WebSocket server (`example/lib/local_mock_websocket_adapter.dart`) that answers heartbeat/ACK/topic traffic and broadcasts periodic events with zero network access — switch between **Mock (local)** and **Real server** right in the demo UI. Native builds use a real local WebSocket server; web builds use an in-memory transport with identical behaviour.
+
+### Tests
+
+- Added 13 regression tests covering all of the above fixes, plus an example integration test exercising the full mock flow (echo, ACK, heartbeat, topics, simulated disconnect → auto-reconnect).
+- Made the previously jitter-dependent exponential-backoff test deterministic.
+
+---
+
 ## 0.1.7
 
 ### New Features

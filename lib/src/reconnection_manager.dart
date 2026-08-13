@@ -16,6 +16,13 @@ class ReconnectionManager {
   bool _isReconnecting = false;
   Duration _currentDelay;
 
+  /// Bumped by [stopReconnection]/[reset] to invalidate an in-flight attempt,
+  /// so a superseded attempt can neither report success nor reschedule.
+  int _generation = 0;
+
+  /// Whether a reconnect attempt is currently awaiting [_reconnectCallback].
+  bool _attemptInProgress = false;
+
   // Callbacks
   void Function()? _onReconnectAttempt;
   void Function()? _onReconnectSuccess;
@@ -26,10 +33,10 @@ class ReconnectionManager {
     required WebSocketConfig config,
     required ReconnectionCallback reconnectCallback,
     required void Function(String) log,
-  })  : _config = config,
-        _reconnectCallback = reconnectCallback,
-        _log = log,
-        _currentDelay = config.reconnectDelay;
+  }) : _config = config,
+       _reconnectCallback = reconnectCallback,
+       _log = log,
+       _currentDelay = config.reconnectDelay;
 
   /// Sets callback for reconnection attempt events
   void setOnReconnectAttempt(void Function() callback) {
@@ -51,6 +58,14 @@ class ReconnectionManager {
     _onMaxAttemptsReached = callback;
   }
 
+  /// Whether a reconnect attempt is currently in flight.
+  ///
+  /// When `true`, callers observing a fresh disconnection should
+  /// [stopReconnection] before [startReconnection] so the event is not lost.
+  bool get isAttemptInProgress => _attemptInProgress;
+
+  bool get isReconnecting => _isReconnecting;
+
   /// Starts reconnection process
   void startReconnection() {
     if (!_config.autoReconnect || _isReconnecting) {
@@ -68,26 +83,34 @@ class ReconnectionManager {
 
     _isReconnecting = true;
     _reconnectAttempts++;
+    _generation++;
 
     final delay = _calculateDelay();
     final limitText = hasLimit ? '$maxAttempts' : 'unlimited';
-    _log('Scheduling reconnection attempt $_reconnectAttempts/$limitText in ${delay.inSeconds}s');
+    _log(
+      'Scheduling reconnection attempt $_reconnectAttempts/$limitText in ${delay.inSeconds}s',
+    );
 
-    _reconnectTimer = Timer(delay, _attemptReconnection);
+    final generation = _generation;
+    _reconnectTimer = Timer(delay, () => _attemptReconnection(generation));
   }
 
-  /// Stops reconnection process
+  /// Stops reconnection process (invalidates any in-flight attempt)
   void stopReconnection() {
+    _generation++;
     _isReconnecting = false;
+    _attemptInProgress = false;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
   }
 
   /// Resets reconnection state (call on successful connection)
   void reset() {
+    _generation++;
     _reconnectAttempts = 0;
     _currentDelay = _config.reconnectDelay;
     _isReconnecting = false;
+    _attemptInProgress = false;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
   }
@@ -112,42 +135,55 @@ class ReconnectionManager {
       return _config.reconnectDelay;
     }
 
-    // Exponential backoff with jitter
+    // Exponential backoff with jitter. The exponent is capped so pow() never
+    // overflows to Infinity with unlimited retries (would crash on round()).
     final baseDelay = _config.reconnectDelay.inMilliseconds;
-    final exponentialDelay = baseDelay * pow(_config.backoffMultiplier, _reconnectAttempts - 1);
-    
+    final exponent = min(_reconnectAttempts - 1, 60);
+    final exponentialDelay =
+        baseDelay * pow(_config.backoffMultiplier, exponent);
+
     // Add jitter (±25% of the delay)
     final jitter = exponentialDelay * 0.25 * (Random().nextDouble() * 2 - 1);
     final totalDelay = (exponentialDelay + jitter).round();
-    
+
     // Cap at maximum delay
-    final cappedDelay = min(totalDelay, _config.maxReconnectDelay.inMilliseconds);
-    
+    final cappedDelay = min(
+      totalDelay,
+      _config.maxReconnectDelay.inMilliseconds,
+    );
+
     _currentDelay = Duration(milliseconds: cappedDelay);
     return _currentDelay;
   }
 
   /// Attempts to reconnect
-  Future<void> _attemptReconnection() async {
-    if (!_isReconnecting) {
+  Future<void> _attemptReconnection(int generation) async {
+    if (!_isReconnecting || generation != _generation) {
       return;
     }
+    _attemptInProgress = true;
 
     _log('Attempting reconnection (attempt $_reconnectAttempts)');
     _onReconnectAttempt?.call();
 
     try {
       await _reconnectCallback();
+      if (generation != _generation) return;
       _log('Reconnection successful');
       _onReconnectSuccess?.call();
       reset();
     } catch (error) {
+      if (generation != _generation) return;
       _log('Reconnection attempt $_reconnectAttempts failed: $error');
       _onReconnectFailure?.call(error);
       _isReconnecting = false;
-      
+
       // Schedule next attempt
       startReconnection();
+    } finally {
+      // A superseded attempt (stopReconnection() mid-flight) already cleared
+      // this flag; clearing it again is harmless.
+      _attemptInProgress = false;
     }
   }
 

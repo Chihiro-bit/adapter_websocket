@@ -1,8 +1,7 @@
 import 'dart:convert';
 import 'interceptor.dart';
 import 'websocket_message.dart';
-import 'compression_stub.dart'
-    if (dart.library.io) 'compression_io.dart';
+import 'compression_stub.dart' if (dart.library.io) 'compression_io.dart';
 
 /// Wire-format marker keys embedded in the JSON envelope.
 const _kCompressed = '__c__';

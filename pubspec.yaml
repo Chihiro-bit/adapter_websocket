@@ -1,6 +1,6 @@
 name: adapter_websocket
 description: "A Flutter WebSocket adapter with auto-reconnect, heartbeat, interceptors, ACK confirmation, message queuing, topic multiplexing, and connection pooling."
-version: 0.1.7
+version: 0.1.8
 homepage: https://github.com/Chihiro-bit/adapter_websocket.git
 repository: https://github.com/Chihiro-bit/adapter_websocket.git
 
@@ -10,6 +10,8 @@ environment:
 
 dependencies:
   flutter:
+    sdk: flutter
+  flutter_web_plugins:
     sdk: flutter
   web: ^1.0.0
   web_socket_channel: ^3.0.3
@@ -47,6 +49,11 @@ flutter:
         pluginClass: AdapterWebsocketPlugin
       windows:
         pluginClass: AdapterWebsocketPluginCApi
+      # Web support is handled entirely in Dart via web_socket_channel;
+      # the registrant class is a no-op.
+      web:
+        pluginClass: AdapterWebsocketWeb
+        fileName: src/adapter_websocket_web.dart
 
   # To add assets to your plugin package, add an assets section, like this:
   # assets:

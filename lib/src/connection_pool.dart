@@ -64,20 +64,19 @@ class WebSocketPool {
   WebSocketPool({
     required List<WebSocketConfig> configs,
     this.strategy = PoolStrategy.roundRobin,
+
     /// Optional factory to create adapters; defaults to [WebSocketChannelAdapter].
     WebSocketAdapter Function(WebSocketConfig)? adapterFactory,
   }) : _entries = configs.map((c) {
-          final adapter =
-              adapterFactory?.call(c) ?? WebSocketChannelAdapter(c);
-          return _PoolEntry(WebSocketClient(adapter));
-        }).toList();
+         final adapter = adapterFactory?.call(c) ?? WebSocketChannelAdapter(c);
+         return _PoolEntry(WebSocketClient(adapter));
+       }).toList();
 
   /// Number of clients in the pool.
   int get size => _entries.length;
 
   /// Number of currently connected clients.
-  int get connectedCount =>
-      _entries.where((e) => e.client.isConnected).length;
+  int get connectedCount => _entries.where((e) => e.client.isConnected).length;
 
   /// Connects all clients in parallel.
   Future<void> connectAll() =>
@@ -116,26 +115,26 @@ class WebSocketPool {
 
   /// Sends [data] to every connected client.
   Future<void> broadcast(dynamic data) => Future.wait(
-        _entries
-            .where((e) => e.client.isConnected)
-            .map((e) => e.client.send(data)),
-      );
+    _entries.where((e) => e.client.isConnected).map((e) => e.client.send(data)),
+  );
 
   /// Sends a [WebSocketMessage] to every connected client.
   Future<void> broadcastMessage(WebSocketMessage message) => Future.wait(
-        _entries
-            .where((e) => e.client.isConnected)
-            .map((e) => e.client.sendMessage(message)),
-      );
+    _entries
+        .where((e) => e.client.isConnected)
+        .map((e) => e.client.sendMessage(message)),
+  );
 
   /// Returns per-client statistics.
   List<Map<String, dynamic>> getStats() => _entries
-      .map((e) => {
-            'url': e.client.config.url,
-            'isConnected': e.client.isConnected,
-            'useCount': e.useCount,
-            'state': e.client.currentState.description,
-          })
+      .map(
+        (e) => {
+          'url': e.client.config.url,
+          'isConnected': e.client.isConnected,
+          'useCount': e.useCount,
+          'state': e.client.currentState.description,
+        },
+      )
       .toList();
 
   Future<void> dispose() async {

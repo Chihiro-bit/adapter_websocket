@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:adapter_websocket/websocket_plugin.dart';
+import 'package:adapter_websocket/adapter_websocket.dart';
 
 /// Mock WebSocket adapter for testing purposes
 class MockWebSocketAdapter implements WebSocketAdapter {

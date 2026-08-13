@@ -2,12 +2,16 @@
 enum WebSocketState {
   /// Connection is being established
   connecting,
+
   /// Connection is established and ready for communication
   connected,
+
   /// Connection is being closed
   disconnecting,
+
   /// Connection is closed
   disconnected,
+
   /// Connection failed or encountered an error
   error,
 }

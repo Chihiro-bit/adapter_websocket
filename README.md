@@ -88,7 +88,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  adapter_websocket: ^0.1.6
+  adapter_websocket: ^0.1.8
 ```
 
 Then run:

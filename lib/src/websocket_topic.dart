@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'websocket_message.dart';
 
-typedef _TopicSender = Future<void> Function(
-    String topic, String event, dynamic payload);
+typedef _TopicSender =
+    Future<void> Function(String topic, String event, dynamic payload);
 
 /// A logical sub-channel scoped to a specific [topic] name.
 ///
@@ -20,7 +20,7 @@ class WebSocketTopic {
   WebSocketTopic({
     required this.topic,
     required Future<void> Function(String topic, String event, dynamic payload)
-        sender,
+    sender,
   }) : _sender = sender;
 
   /// Stream of messages received on this topic.

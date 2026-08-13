@@ -25,6 +25,10 @@ class WebSocketClient {
   // full receive pipeline (ACK filter → interceptors → topic router).
   final StreamController<WebSocketMessage> _messageController =
       StreamController<WebSocketMessage>.broadcast();
+  // Public error stream: only emits errors that have passed through the
+  // error interceptors (null suppresses the error, matching onSend/onReceive).
+  final StreamController<dynamic> _errorController =
+      StreamController<dynamic>.broadcast();
 
   // Managers
   late final HeartbeatManager _heartbeatManager;
@@ -63,7 +67,10 @@ class WebSocketClient {
   /// interceptors and are not consumed by ACK or topic routing are emitted here.
   Stream<WebSocketMessage> get messageStream => _messageController.stream;
 
-  Stream<dynamic> get errorStream => _adapter.errorStream;
+  /// Error stream, filtered through the error interceptors.
+  ///
+  /// An error suppressed by an interceptor (returns `null`) is not emitted.
+  Stream<dynamic> get errorStream => _errorController.stream;
   Stream<String> get logStream => _logController.stream;
   Stream<Map<String, dynamic>> get statsStream => _statsController.stream;
 
@@ -75,28 +82,31 @@ class WebSocketClient {
   bool get isConnecting => _adapter.isConnecting;
   bool get isClosed => _adapter.isClosed;
 
+  /// Whether an automatic reconnection cycle is currently scheduled or in
+  /// flight (after an unexpected disconnect).
+  bool get isReconnecting => _reconnectionManager.isReconnecting;
+
   // ─── Statistics ────────────────────────────────────────────────────────────
 
   Map<String, dynamic> get connectionStats => {
-        'connectionState': currentState.description,
-        'isConnected': isConnected,
-        'heartbeat': _heartbeatManager.getStats(),
-        'reconnection': _reconnectionManager.getStats(),
-        'messageQueue': _messageQueue?.getStats() ??
-            {'enabled': false},
-        'ack': _ackManager?.getStats() ?? {'enabled': false},
-        'channels': _channelManager.getStats(),
-        'interceptors': _interceptors.interceptors.length,
-        'config': {
-          'url': config.url,
-          'autoReconnect': config.autoReconnect,
-          'enableHeartbeat': config.enableHeartbeat,
-          'heartbeatInterval': config.heartbeatInterval.inMilliseconds,
-          'maxReconnectAttempts': config.maxReconnectAttempts,
-          'enableMessageQueue': config.enableMessageQueue,
-          'enableAck': config.enableAck,
-        },
-      };
+    'connectionState': currentState.description,
+    'isConnected': isConnected,
+    'heartbeat': _heartbeatManager.getStats(),
+    'reconnection': _reconnectionManager.getStats(),
+    'messageQueue': _messageQueue?.getStats() ?? {'enabled': false},
+    'ack': _ackManager?.getStats() ?? {'enabled': false},
+    'channels': _channelManager.getStats(),
+    'interceptors': _interceptors.interceptors.length,
+    'config': {
+      'url': config.url,
+      'autoReconnect': config.autoReconnect,
+      'enableHeartbeat': config.enableHeartbeat,
+      'heartbeatInterval': config.heartbeatInterval.inMilliseconds,
+      'maxReconnectAttempts': config.maxReconnectAttempts,
+      'enableMessageQueue': config.enableMessageQueue,
+      'enableAck': config.enableAck,
+    },
+  };
 
   // ─── Interceptor API ───────────────────────────────────────────────────────
 
@@ -142,6 +152,8 @@ class WebSocketClient {
     _log('Disconnecting WebSocket');
     _heartbeatManager.stop();
     _reconnectionManager.stopReconnection();
+    // Callers awaiting an ACK get a clear error instead of hanging.
+    _ackManager?.failAllPending(StateError('Client disconnected'));
     await _adapter.disconnect(code, reason);
   }
 
@@ -170,6 +182,7 @@ class WebSocketClient {
     await _logController.close();
     await _statsController.close();
     await _messageController.close();
+    await _errorController.close();
   }
 
   // ─── Sending ───────────────────────────────────────────────────────────────
@@ -202,19 +215,39 @@ class WebSocketClient {
 
   // ─── Internal send pipeline ────────────────────────────────────────────────
 
-  Future<void> _dispatch(WebSocketMessage message,
-      {required bool useAck}) async {
+  Future<void> _dispatch(
+    WebSocketMessage message, {
+    required bool useAck,
+  }) async {
     // 1. Interceptors (e.g., compression, logging)
     final processed = await _interceptors.processSend(message);
     if (processed == null) return; // suppressed by interceptor
 
     // 2. Send or queue (preserving useAck so drain respects it)
     if (isConnected) {
-      await _sendToAdapter(processed, useAck: useAck);
+      try {
+        await _sendToAdapter(processed, useAck: useAck);
+      } catch (e) {
+        // The connection may have dropped between the isConnected check and
+        // the actual send. Non-ACK messages fall back to the queue so they
+        // are not lost (drained again on reconnect). ACK senders get the
+        // error through their future and can decide to retry.
+        if (!useAck && _messageQueue != null && !_disposed) {
+          if (!_messageQueue!.enqueue(processed, useAck: false)) {
+            throw StateError(
+              'Message queue is full (max ${config.maxQueueSize} messages)',
+            );
+          }
+          _log('Send failed, message queued for redelivery: $e');
+          return;
+        }
+        rethrow;
+      }
     } else if (_messageQueue != null) {
       if (!_messageQueue!.enqueue(processed, useAck: useAck)) {
         throw StateError(
-            'Message queue is full (max ${config.maxQueueSize} messages)');
+          'Message queue is full (max ${config.maxQueueSize} messages)',
+        );
       }
       _log('Message queued (${_messageQueue!.length}/${config.maxQueueSize})');
     } else {
@@ -222,8 +255,10 @@ class WebSocketClient {
     }
   }
 
-  Future<void> _sendToAdapter(WebSocketMessage message,
-      {required bool useAck}) async {
+  Future<void> _sendToAdapter(
+    WebSocketMessage message, {
+    required bool useAck,
+  }) async {
     if (useAck && _ackManager != null) {
       await _ackManager!.sendWithAck(message);
     } else {
@@ -243,7 +278,21 @@ class WebSocketClient {
     _log('Draining ${items.length} queued message(s)');
     for (int i = 0; i < items.length; i++) {
       try {
-        await _sendToAdapter(items[i].message, useAck: items[i].useAck);
+        if (items[i].useAck) {
+          // Fire-and-forget: awaiting the ACK here would block the whole
+          // queue behind one unacknowledged message (up to ackTimeout ×
+          // retries). ACK completion/failure is tracked by AckManager and
+          // reported through the original caller's future.
+          unawaited(
+            _sendToAdapter(items[i].message, useAck: true).catchError((
+              Object e,
+            ) {
+              _log('Queued ACK message failed to deliver: $e');
+            }),
+          );
+        } else {
+          await _sendToAdapter(items[i].message, useAck: false);
+        }
       } catch (e) {
         _log('Failed to drain queue, requeuing remaining: $e');
         // Requeue in original order (reverse insert from end to front).
@@ -296,13 +345,14 @@ class WebSocketClient {
 
     _heartbeatManager.setOnHeartbeatTimeout(() async {
       _log('Heartbeat timeout — forcing reconnect');
-      if (!config.autoReconnect || _disposed) return;
+      if (!config.autoReconnect || _disposed || _intentionalDisconnect) return;
 
       // Force-close the dead socket first. Without this, connect() returns
       // early when the local state is still "connected" even though the
       // underlying TCP connection is gone.
       _intentionalDisconnect = false; // allow reconnection from state listener
       _heartbeatManager.stop();
+      _requeuePendingAcks();
       try {
         await _adapter.disconnect();
       } catch (_) {
@@ -348,13 +398,21 @@ class WebSocketClient {
         if (config.enableHeartbeat) _heartbeatManager.start();
       } else if (state == WebSocketState.disconnected) {
         _heartbeatManager.stop();
+        _requeuePendingAcks();
         // Only auto-reconnect on unexpected disconnections; skip when the user
         // called disconnect() or forceReconnect() deliberately.
         if (!_intentionalDisconnect && config.autoReconnect && !_disposed) {
+          // If a reconnect attempt is in flight, restart the cycle — the
+          // disconnection that just happened would otherwise be swallowed and
+          // reconnection would never resume after the attempt "succeeds".
+          if (_reconnectionManager.isAttemptInProgress) {
+            _reconnectionManager.stopReconnection();
+          }
           _reconnectionManager.startReconnection();
         }
       } else if (state == WebSocketState.error) {
         _heartbeatManager.stop();
+        _requeuePendingAcks();
       }
       _publishStats();
     });
@@ -383,11 +441,47 @@ class WebSocketClient {
 
     _errorSubscription = _adapter.errorStream.listen((error) async {
       final processed = await _interceptors.processError(error);
-      if (processed != null) {
-        _log('WebSocket error: $processed');
-        _publishStats();
+      if (processed == null) return; // suppressed by interceptor
+      _log('WebSocket error: $processed');
+      _publishStats();
+      if (!_errorController.isClosed) {
+        _errorController.add(processed);
       }
     });
+  }
+
+  /// Requeues all pending ACK messages when the connection drops so they are
+  /// redelivered on the next connection instead of being silently lost.
+  void _requeuePendingAcks() {
+    final ackManager = _ackManager;
+    if (ackManager == null) return;
+    final detached = ackManager.detachPendingForRequeue();
+    if (detached.isEmpty) return;
+
+    final queue = _messageQueue;
+    if (queue == null) {
+      ackManager.failAllPending(
+        StateError(
+          'Connection lost with pending ACKs (message queue disabled)',
+        ),
+      );
+      _log('Failed pending ACK messages (no queue to requeue into)');
+      return;
+    }
+
+    for (final entry in detached) {
+      if (queue.enqueue(entry.message, useAck: true)) {
+        _log('Requeued pending ACK ${entry.id} after disconnect');
+      } else {
+        ackManager.failPending(
+          entry.id,
+          StateError(
+            'Message queue is full (max ${config.maxQueueSize} messages)',
+          ),
+        );
+        _log('Dropped pending ACK ${entry.id}: queue full');
+      }
+    }
   }
 
   void _publishStats() {
