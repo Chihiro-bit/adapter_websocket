@@ -1,4 +1,4 @@
-# adapter_websocket 1
+# adapter_websocket 12
 
 [![pub version](https://img.shields.io/pub/v/adapter_websocket.svg)](https://pub.dev/packages/adapter_websocket)
 [![CI](https://github.com/Chihiro-bit/adapter_websocket/actions/workflows/dart.yml/badge.svg)](https://github.com/Chihiro-bit/adapter_websocket/actions)
